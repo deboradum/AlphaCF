@@ -7,9 +7,9 @@ from torch.utils.data import TensorDataset, DataLoader
 
 from DLCF import goboard
 from DLCF.agent import Agent
-from DLCF.agent.helpers import is_point_an_eye
 from DLCF.encoders import Encoder, get_encoder_by_name
 from DLCF.rl.experience import ExperienceBuffer, ExperienceCollector
+from DLCF.goboard import GameState
 
 class ACAgent(Agent):
     def __init__(self, model, encoder: Encoder):
@@ -20,38 +20,41 @@ class ACAgent(Agent):
     def set_collector(self, collector: ExperienceCollector):
         self._collector = collector
 
-    def select_move(self, game_state):
+    def select_move(self, game_state: GameState):
         num_moves = self._encoder.board_width * self._encoder.board_height
 
         X = self._encoder.encode(game_state)
 
         actions, values = self._model(X)
-        move_probs = actions[0]
-        estimated_value = values[0][0]
+        move_probs = actions
+        estimated_value = values.item()
 
-        eps = 1e-6
-        move_probs = torch.clip(move_probs, eps, 1 - eps)
-        move_probs = move_probs / torch.sum(move_probs)
+        valid_move_mask = torch.zeros(num_moves, dtype=torch.bool)
+        for move in game_state.legal_moves():
+            # Convert each valid Move object back to its corresponding index
+            move_idx = self._encoder.encode_point(move.point)
+            valid_move_mask[move_idx] = True
 
-        candidates = torch.arange(num_moves)
-        ranked_moves = torch.random.choice(
-            candidates, num_moves, replace=False, p=move_probs)
+        masked_probs = move_probs * valid_move_mask.float()
+        if torch.sum(masked_probs) > 0:
+            masked_probs = masked_probs / torch.sum(masked_probs)
+        else:
+            print("This should not happen!")
+            # Failsafe: if model gives 0 probability to all valid moves,
+            # choose uniformly from the valid moves.
+            masked_probs = valid_move_mask.float() / torch.sum(valid_move_mask.float())
 
-        for point_idx in ranked_moves:
-            point = self._encoder.decode_point_index(point_idx)
-            move = goboard.Move.play(point)
-            move_is_valid = game_state.is_valid_move(move)
-            fills_own_eye = is_point_an_eye(
-                game_state.board, point,
-                game_state.next_player)
-            if move_is_valid and (not fills_own_eye):
-                if self._collector is not None:
-                    self._collector.record_decision(
-                        state=X,
-                        action=point_idx,
-                        estimated_value=estimated_value)
-                return goboard.Move.play(point)
-        return goboard.Move.pass_turn()
+        point_idx = torch.multinomial(masked_probs, 1).item()
+
+        if self._collector is not None:
+            self._collector.record_decision(
+                state=X,
+                action=point_idx,
+                estimated_value=estimated_value)
+
+        point = self._encoder.decode_point_index(point_idx)
+        return goboard.Move.play(point)
+
 
     def train(self, experience: ExperienceBuffer, lr:float=0.1, batch_size:int=128):
         self._model.train()
@@ -112,7 +115,7 @@ def load_ac_agent(h5file: h5py.File, model_class: torch.nn.Module):
     # Recreate the encoder
     encoder = get_encoder_by_name(
         encoder_name,
-        (board_width, board_height)
+        (board_height, board_width)
     )
 
     model = model_class(encoder)

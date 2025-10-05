@@ -6,15 +6,15 @@ from initAgent import Model
 
 from constants import WIN_REWARD, LOSS_REWARD
 from DLCF import rl
-from DLCF import gameScore
 from DLCF.goboard import GameState, Player
+from DLCF.rl import ACAgent
 # from DLCF.goboard_fast import GameState, Player
 
 
 class GameRecord(namedtuple('GameRecord', 'winner')):
     pass
 
-def simulate_game(black_player, white_player):
+def simulate_game(black_player: ACAgent, white_player: ACAgent):
     game = GameState.new_game(BOARD_SIZE)
     agents = {
         Player.black: black_player,
@@ -23,17 +23,16 @@ def simulate_game(black_player, white_player):
     while not game.is_over():
         next_move = agents[game.next_player].select_move(game)
         game = game.apply_move(next_move)
-    game_result = gameScore.compute_game_result(game)
 
-    print(game_result)
+    winner = game.compute_game_result()
 
-    return GameRecord(
-        winner=game_result.winner
-    )
+    print("Winner is player: ", winner)
+
+    return GameRecord(winner=winner)
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--board-size', type=int, default=19)
+    parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
     parser.add_argument('--learning-agent', type=str, required=True)
     parser.add_argument('--experience-out', type=str, required=True)
     parser.add_argument('--num-games', '-n', type=int, default=10)

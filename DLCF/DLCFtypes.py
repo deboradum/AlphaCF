@@ -1,5 +1,5 @@
 import enum
-from collections import namedtuple
+from typing import NamedTuple
 
 class Player(enum.Enum):
     black = 1
@@ -9,8 +9,11 @@ class Player(enum.Enum):
     def other(self):
         return Player.black if self == Player.white else Player.white
 
-class Point(namedtuple('Point', 'row col')):
-    def neighbors(self):
+class Point(NamedTuple):
+    row: int
+    col: int
+
+    def neighbors(self) -> list["Point"]:
         return [
             Point(self.row - 1, self.col),
             Point(self.row + 1, self.col),

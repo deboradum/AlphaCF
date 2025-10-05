@@ -1,211 +1,143 @@
 import copy
+
+from typing import Dict, List
+
 from DLCF import zobrist
 from DLCF.DLCFtypes import Player, Point
 
-from DLCF.gameScore import compute_game_result
 
 class Board():
-    def __init__(self, num_rows, num_cols):
+    def __init__(self, num_rows:int, num_cols:int):
         self.num_rows = num_rows
         self.num_cols = num_cols
-        self._grid = {}
+        self._grid:Dict[Point, Player] = {}
         self._hash = zobrist.EMPTY_BOARD
-
-    def _replace_string(self, new_string):
-        for point in new_string.stones:
-            self._grid[point] = new_string
-
-    def _remove_string(self, string):
-        for point in string.stones:
-            for neighbor in point.neighbors():
-                neighbor_string = self._grid.get(neighbor)
-                if neighbor_string is None:
-                    continue
-                if neighbor_string is not string:
-                    self._replace_string(neighbor_string.with_liberty(point))
-            self._grid[point] = None
-            self._hash ^= zobrist.HASH_CODE[point, string.color]
 
     def zobrist_hash(self):
         return self._hash
 
-    def place_stone(self, player, point):
-        assert self.is_on_grid(point)
-        assert self._grid.get(point) is None
+    def place_stone(self, player:Player, point:Point):
+        assert 0 <= point.col < self.num_cols+1, "Column out of bounds"
+        assert not self.is_column_full(point.col), "Column is full"
+        if point.row < self.num_rows:
+            assert self._grid.get(Point(point.row+1, point.col)) is not None, "Illegal move, row below current point is not empty."
 
-        adjacent_same_color = []
-        adjacent_opposite_color = []
-        liberties = []
-        for neighbor in point.neighbors():
-            if not self.is_on_grid(neighbor):
-                continue
-            neighbor_string = self._grid.get(neighbor)
-            if neighbor_string is None:
-                liberties.append(neighbor)
-            elif neighbor_string.color == player:
-                if neighbor_string not in adjacent_same_color:
-                    adjacent_same_color.append(neighbor_string)
-            else:
-                if neighbor_string not in adjacent_opposite_color:
-                    adjacent_opposite_color.append(neighbor_string)
-        new_string = GoString(player, [point], liberties)
-        for same_color_string in adjacent_same_color:
-            new_string = new_string.merged_with(same_color_string)
-        for new_string_point in new_string.stones:
-            self._grid[new_string_point] = new_string
+        self._grid[point] = player
         self._hash ^= zobrist.HASH_CODE[point, player]
-        for other_color_string in adjacent_opposite_color:
-            replacement = other_color_string.without_liberty(point)
-            if replacement.num_liberties:
-                self._replace_string(other_color_string.without_liberty(point))
-            else:
-                self._remove_string(other_color_string)
 
-    def is_on_grid(self, point:Point):
+    def is_on_grid(self, point:Point) -> bool:
         return 1 <= point.row <= self.num_rows and \
             1 <= point.col <= self.num_cols
 
-    def get(self, point:Point):
-        string = self._grid.get(point)
-        if string is None:
-            return None
-        return string.color
+    def is_column_full(self, col: int):
+        for r in range(1, self.num_cols+1):
+            p = Point(r, col)
+            if self._grid.get(p) is None:
+                return False
 
-    def get_go_string(self, point):
-        string = self._grid.get(point)
-        if string is None:
-            return None
-        return string
+        return True
+
+    def get(self, point:Point):
+        return self._grid.get(point)
+
 
 class Move():
-    def __init__(self, point=None, is_pass=False, is_resign=False):
-        assert (point is not None) ^ is_pass ^ is_resign
+    def __init__(self, point:Point=None):
+        assert (point is not None)
         self.point = point
         self.is_play = (self.point is not None)
-        self.is_pass = is_pass
-        self.is_resign = is_resign
 
     @classmethod
-    def play(cls, point):
+    def play(cls, point:Point):
         return Move(point=point)
 
-    @classmethod
-    def pass_turn(cls):
-        return Move(is_pass=True)
-
-    @classmethod
-    def resign(cls):
-        return Move(is_resign=True)
-
-# Chain of connected stones (used to e.g. efficiently check for liberties)
-class GoString():
-    def __init__(self, color, stones, liberties):
-        self.color = color
-        self.stones = frozenset(stones)
-        self.liberties = frozenset(liberties)
-
-    def without_liberty(self, point):
-        new_liberties = self.liberties - set([point])
-        return GoString(self.color, self.stones, new_liberties)
-
-    def with_liberty(self, point):
-        new_liberties = self.liberties | set([point])
-        return GoString(self.color, self.stones, new_liberties)
-
-    def merged_with(self, go_string):
-        assert go_string.color == self.color
-        combined_stones = self.stones | go_string.stones
-        return GoString(
-            self.color,
-            combined_stones,
-            (self.liberties | go_string.liberties) - combined_stones
-        )
-
-    @property
-    def num_liberties(self):
-        return len(self.liberties)
-
-    def __eq__(self, other):
-        return isinstance(other, GoString) and \
-            self.color == other.color and \
-            self.stones == other.stones and \
-            self.liberties == other.liberties
 
 class GameState():
-    def __init__(self, board, next_player, previous, move):
+    def __init__(self, board: Board, next_player: Player, previous: "GameState", move: Move):
         self.board = board
         self.next_player = next_player
         self.previous_state = previous
+
         if self.previous_state is None:
             self.previous_states = frozenset()
         else:
             self.previous_states = frozenset(
                 previous.previous_states |
                 {(previous.next_player, previous.board.zobrist_hash())})
+
         self.last_move = move
 
-    def apply_move(self, move):
+    def apply_move(self, move:Move):
         if move.is_play:
             next_board = copy.deepcopy(self.board)
             next_board.place_stone(self.next_player, move.point)
         else:
             next_board = self.board
+
         return GameState(next_board, self.next_player.other, self, move)
 
     def is_over(self):
         if self.last_move is None:
             return False
-        if self.last_move.is_resign:
-            return True
+
         second_last_move = self.previous_state.last_move
         if second_last_move is None:
             return False
-        return self.last_move.is_pass and second_last_move.is_pass
 
-    def is_move_self_capture(self, player, move):
-        if not move.is_play:
-            return False
-        next_board = copy.deepcopy(self.board)
-        next_board.place_stone(player, move.point)
-        new_string = next_board.get_go_string(move.point)
-        return new_string.num_liberties == 0
+        winner = self.compute_game_result()
+        if winner is not None:
+            return True
+
+        if not self.legal_moves():
+            return True
+
+        return False
+
+    def is_move_inside_grid(self, move: Move):
+        return 1 <= move.point.row <= self.board.num_rows and \
+            1 <= move.point.col <= self.board.num_cols
 
     def is_valid_move(self, move):
-        if self.is_over():
-            return False
-        if move.is_pass or move.is_resign:
-            return True
         return (
-            self.board.get(move.point) is None and
-            not self.is_move_self_capture(self.next_player, move) and
-            not self.does_move_violate_ko(self.next_player, move))
+            self.board.get(move.point) is None and  # Grid point is empty
+            self.is_move_inside_grid(move)  # Grid point is inside grid
+        )
+
+    def get_drop_point(self, column:int):
+        for r in range(self.board.num_rows, 0, -1):
+            point = Point(row=r, col=column)
+            if self.board._grid.get(point) is None:
+                return r
+
+        return None
 
     def legal_moves(self):
-        if self.is_over():
-            return []
-        moves = []
-        for row in range(1, self.board.num_rows + 1):
-            for col in range(1, self.board.num_cols + 1):
-                move = Move.play(Point(row, col))
-                if self.is_valid_move(move):
-                    moves.append(move)
-        moves.append(Move.pass_turn())
-        moves.append(Move.resign())
+        moves: List[Move] = []
+        for col in range(1, self.board.num_cols + 1):
+            drop_row = self.get_drop_point(col)
+            if drop_row is None:
+                continue
+            move = Move.play(Point(drop_row, col))
+            if self.is_valid_move(move):
+                moves.append(move)
+
         return moves
 
     def winner(self):
         if not self.is_over():
             return None
+
         if self.last_move.is_resign:
             return self.next_player
-        game_result = compute_game_result(self)
 
-        return game_result.winner
+        winner = self.compute_game_result(self)
+
+        return winner
 
     @classmethod
     def new_game(cls, board_size):
         if isinstance(board_size, int):
-            board_size = (board_size, board_size)
+            raise ValueError("Board size should be a tuple (h, w)")
         board = Board(*board_size)
         return GameState(board, Player.black, None, None)
 
@@ -213,10 +145,32 @@ class GameState():
     def situation(self):
         return (self.next_player, self.board)
 
-    def does_move_violate_ko(self, player, move):
-        if not move.is_play:
-            return False
-        next_board = copy.deepcopy(self.board)
-        next_board.place_stone(player, move.point)
-        next_situation = (player.other, next_board.zobrist_hash())
-        return next_situation in self.previous_states
+    def compute_game_result(self) -> Player:
+        board = self.board
+
+        for r in range(1, board.num_rows+1):
+            for c in range(1, board.num_cols+1):
+                start_point = Point(row=r, col=c)
+                player = board.get(start_point)
+
+                # If there's a piece here, check for a winning line
+                if player is not None:
+                    # Directions to check: right, down, down-right, down-left
+                    directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+
+                    for dr, dc in directions:
+                        # Check if a line of 4 exists starting from this point
+                        is_a_win = True
+                        for i in range(1, 4):
+                            next_point = Point(row=r + i * dr, col=c + i * dc)
+                            if board.get(next_point) != player:
+                                is_a_win = False
+                                break
+                        if is_a_win:
+                            return player
+
+        # TODO: How to represent draw?
+        if len(board._grid) == board.num_rows * board.num_cols:
+            return "draw"
+
+        return None

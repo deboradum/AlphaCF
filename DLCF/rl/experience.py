@@ -57,10 +57,11 @@ class ExperienceBuffer:
         h5file['experience'].create_dataset('advantages', data=self.advantages)
 
 def combine_experience(collectors):
-    combined_states = np.concatenate([torch.Tensor(c.states) for c in collectors])
-    combined_actions = np.concatenate([torch.Tensor(c.actions) for c in collectors])
-    combined_rewards = np.concatenate([torch.Tensor(c.rewards) for c in collectors])
-    combined_advantages = np.concatenate([torch.Tensor(c.advantages) for c in collectors])
+    combined_states = torch.cat([torch.stack(c.states) for c in collectors], dim=0)
+    combined_actions = torch.cat([torch.tensor(c.actions, dtype=torch.long) for c in collectors], dim=0)
+    combined_rewards = torch.cat([torch.tensor(c.rewards, dtype=torch.float32) for c in collectors], dim=0)
+    combined_advantages = torch.cat([torch.tensor(c.advantages, dtype=torch.float32) for c in collectors], dim=0)
+
     return ExperienceBuffer(
         combined_states,
         combined_actions,

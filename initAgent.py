@@ -15,37 +15,41 @@ class Model(nn.Module):
         self.hidden_size = 512
         self.in_dim = encoder.num_planes
 
-        board_size = encoder.get_board_size()
-        flatten_size = 64 * board_size
+        flatten_size = 64 * encoder.board_height * encoder.board_width
 
         self.backbone = nn.Sequential(
-            OrderedDict(
-                [
-                    ("conv1", nn.Sequential(nn.Conv2d(in_channels=self.in_dim, out_channels=64, kernel_size=(3, 3), padding='same'), nn.ReLU())),
-                    ("conv2", nn.Sequential(nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), padding='same'), nn.ReLU())),
-                    ("conv3", nn.Sequential(nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), padding='same'), nn.ReLU())),
-                    ("flat", nn.Flatten()),
-                    ("processed_board", nn.Linear(flatten_size, self.hidden_size)),
-                ]
-            )
+            *[
+                # Layer 1
+                nn.Conv2d(in_channels=self.in_dim, out_channels=64, kernel_size=(3, 3), padding='same'),
+                nn.ReLU(),
+                # Layer 2
+                nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), padding='same'),
+                nn.ReLU(),
+                # Layer 3
+                nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), padding='same'),
+                nn.ReLU(),
+                # Flatten and project
+                nn.Flatten(start_dim=0),
+                nn.Linear(flatten_size, self.hidden_size),
+            ]
         )
 
         self.policy = nn.Sequential(
-            OrderedDict(
-                [
-                    ("policy_hidden_layer", nn.Sequential(nn.Linear(self.hidden_size, self.hidden_size), nn.ReLU())),
-                    ("policy_output", nn.Sequential(nn.Linear(self.hidden_size, encoder.num_points()), nn.Softmax())),
-                ]
-            )
+            *[
+                nn.Linear(self.hidden_size, self.hidden_size),
+                nn.ReLU(),
+                nn.Linear(self.hidden_size, encoder.num_points()),
+                nn.Softmax(dim=-1),
+            ]
         )
 
         self.value = nn.Sequential(
-            OrderedDict(
-                [
-                    ("value_hidden_layer", nn.Sequential(nn.Linear(self.hidden_size, self.hidden_size), nn.ReLU())),
-                    ("value_output", nn.Sequential(nn.Linear(self.hidden_size, encoder.num_points()), nn.Softmax())),
-                ]
-            )
+            *[
+                nn.Linear(self.hidden_size, self.hidden_size),
+                nn.ReLU(),
+                nn.Linear(self.hidden_size, 1),
+                nn.Tanh(),
+            ]
         )
 
     def forward(self, encoded_board):
@@ -59,7 +63,7 @@ class Model(nn.Module):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--board-size', type=int, default=19)
+    parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
     parser.add_argument('--encoder-name', type=str, default="connectFour")
     parser.add_argument('--hidden-size', type=int, default=512)
     parser.add_argument('--output-file', type=str)
@@ -70,6 +74,7 @@ def main():
     output_file = args.output_file
 
     encoder = encoders.get_encoder_by_name(args.encoder_name, board_size)
+
     model = Model(encoder)
 
     new_agent = ACAgent(model, encoder)

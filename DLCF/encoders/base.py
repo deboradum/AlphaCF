@@ -24,12 +24,10 @@ class Encoder:
     def shape(self):
         raise NotImplementedError
 
-    def get_board_size(self):
-        raise NotImplementedError
-
 def get_encoder_by_name(name, board_size) -> Encoder:
     if isinstance(board_size, int):
-        board_size = (board_size, board_size)
+        if isinstance(board_size, int):
+            raise ValueError("Board size should be a tuple (h, w)")
 
     module = importlib.import_module('DLCF.encoders.' + name)
     constructor = getattr(module, 'create')
