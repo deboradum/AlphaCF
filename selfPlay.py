@@ -1,6 +1,7 @@
 import argparse
 import h5py
 from collections import namedtuple
+from tqdm import tqdm
 
 from initAgent import Model
 
@@ -14,7 +15,7 @@ from DLCF.rl import ACAgent
 class GameRecord(namedtuple('GameRecord', 'winner')):
     pass
 
-def simulate_game(black_player: ACAgent, white_player: ACAgent):
+def simulate_game(black_player: ACAgent, white_player: ACAgent, verbose:bool=False):
     game = GameState.new_game(BOARD_SIZE)
     agents = {
         Player.black: black_player,
@@ -26,7 +27,10 @@ def simulate_game(black_player: ACAgent, white_player: ACAgent):
 
     winner = game.compute_game_result()
 
-    print("Winner is player: ", winner)
+    if verbose:
+        game.board.visualize()
+        print("Winner is player: ", winner)
+        print()
 
     return GameRecord(winner=winner)
 
@@ -55,9 +59,7 @@ def main():
     agent1.set_collector(collector1)
     agent2.set_collector(collector2)
 
-    for i in range(num_games):
-        print(f"Simulating game {i}")
-
+    for _ in tqdm(range(num_games)):
         collector1.begin_episode()
         collector2.begin_episode()
 

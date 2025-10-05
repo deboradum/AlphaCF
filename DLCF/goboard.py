@@ -40,6 +40,23 @@ class Board():
     def get(self, point:Point):
         return self._grid.get(point)
 
+    def visualize(self):
+        for r in range(1, self.num_rows + 1):
+            row_output = []
+            for c in range(1, self.num_cols + 1):
+                point = Point(row=r, col=c)
+                player = self._grid.get(point)
+
+                if player == Player.black:
+                    row_output.append('O')
+                elif player == Player.white:
+                    row_output.append('X')
+                else:
+                    row_output.append('.')
+            print(' '.join(row_output))
+
+        print(' '.join(str(c) for c in range(1, self.num_cols + 1)))
+
 
 class Move():
     def __init__(self, point:Point=None):
