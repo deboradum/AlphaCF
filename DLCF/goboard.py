@@ -1,6 +1,6 @@
 import copy
 from DLCF import zobrist
-from DLCF.types import Player, Point
+from DLCF.DLCFtypes import Player, Point
 
 from DLCF.gameScore import compute_game_result
 
@@ -61,11 +61,11 @@ class Board():
             else:
                 self._remove_string(other_color_string)
 
-    def is_on_grid(self, point):
+    def is_on_grid(self, point:Point):
         return 1 <= point.row <= self.num_rows and \
             1 <= point.col <= self.num_cols
 
-    def get(self, point):
+    def get(self, point:Point):
         string = self._grid.get(point)
         if string is None:
             return None

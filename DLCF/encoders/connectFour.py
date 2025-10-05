@@ -5,7 +5,7 @@ from typing import Tuple
 
 from DLCF.encoders.base import Encoder
 from DLCF.goboard import Move, GameState
-from DLCF.types import Player, Point
+from DLCF.DLCFtypes import Player, Point
 
 FEATRE_OFFSETS = {
     'stone_color': 0,
@@ -28,7 +28,7 @@ class ConnectFourEncoder(Encoder):
         self.num_planes = len(FEATRE_OFFSETS.keys())
 
     def name(self):
-        return 'ConnectFour'
+        return 'connectFour'
 
     def encode(self, game_state: GameState):
         board_tensor = torch.zeros(self.shape())
@@ -72,6 +72,9 @@ class ConnectFourEncoder(Encoder):
 
     def zeros(self):
         return torch.zeros((1, self.board_height, self.board_width))
+
+    def get_board_size(self):
+        return self.board_height * self.board_width
 
 def create(board_size=(6,7)):
     return ConnectFourEncoder(board_size)

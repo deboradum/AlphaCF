@@ -24,11 +24,14 @@ class Encoder:
     def shape(self):
         raise NotImplementedError
 
+    def get_board_size(self):
+        raise NotImplementedError
+
 def get_encoder_by_name(name, board_size) -> Encoder:
     if isinstance(board_size, int):
         board_size = (board_size, board_size)
 
-    module = importlib.import_module('dlgo.encoders.' + name)
+    module = importlib.import_module('DLCF.encoders.' + name)
     constructor = getattr(module, 'create')
 
     return constructor(board_size)

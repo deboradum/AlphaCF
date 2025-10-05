@@ -2,9 +2,11 @@ import argparse
 import h5py
 from collections import namedtuple
 
+from initAgent import Model
+
 from constants import WIN_REWARD, LOSS_REWARD
 from DLCF import rl
-from DLCF import scoring
+from DLCF import gameScore
 from DLCF.goboard import GameState, Player
 # from DLCF.goboard_fast import GameState, Player
 
@@ -21,7 +23,7 @@ def simulate_game(black_player, white_player):
     while not game.is_over():
         next_move = agents[game.next_player].select_move(game)
         game = game.apply_move(next_move)
-    game_result = scoring.compute_game_result(game)
+    game_result = gameScore.compute_game_result(game)
 
     print(game_result)
 
@@ -31,10 +33,10 @@ def simulate_game(black_player, white_player):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--board-size', type=int, required=True)
+    parser.add_argument('--board-size', type=int, default=19)
     parser.add_argument('--learning-agent', type=str, required=True)
-    parser.add_argument('--num-games', '-n', type=int, default=10)
     parser.add_argument('--experience-out', type=str, required=True)
+    parser.add_argument('--num-games', '-n', type=int, default=10)
 
     args = parser.parse_args()
 
@@ -45,8 +47,8 @@ def main():
     global BOARD_SIZE
     BOARD_SIZE = args.board_size
 
-    agent1 = rl.load_ac_agent(h5py.File(agent_filename))
-    agent2 = rl.load_ac_agent(h5py.File(agent_filename))
+    agent1 = rl.load_ac_agent(h5py.File(agent_filename), Model)
+    agent2 = rl.load_ac_agent(h5py.File(agent_filename), Model)
 
     collector1 = rl.ExperienceCollector()
     collector2 = rl.ExperienceCollector()

@@ -1,15 +1,18 @@
+import h5py
 import torch
-from keras.optimizers import SGD
+import torch.nn as nn
 
-from DLCF.agent.base import Agent
-from DLCF.rl import ExperienceCollector
-from DLCF.agent.helpers import is_point_an_eye
-from DLCF import encoders
+from torch.optim import SGD
+from torch.utils.data import TensorDataset, DataLoader
+
 from DLCF import goboard
-from DLCF import kerasutil
+from DLCF.agent import Agent
+from DLCF.agent.helpers import is_point_an_eye
+from DLCF.encoders import Encoder, get_encoder_by_name
+from DLCF.rl.experience import ExperienceBuffer, ExperienceCollector
 
 class ACAgent(Agent):
-    def __init__(self, model: "TODO", encoder: encoders.Encoder):
+    def __init__(self, model, encoder: Encoder):
         self._model = model
         self._encoder = encoder
         self._collector = None
@@ -50,47 +53,78 @@ class ACAgent(Agent):
                 return goboard.Move.play(point)
         return goboard.Move.pass_turn()
 
-    def train(self, experience, lr=0.1, batch_size=128):
-        opt = SGD(lr=lr)
-        self._model.compile(optimizer=opt,
-            loss=['categorical_crossentropy', 'mse'],
-            loss_weights=[1.0, 0.5])
+    def train(self, experience: ExperienceBuffer, lr:float=0.1, batch_size:int=128):
+        self._model.train()
 
-        n = experience.states.shape[0]
-        num_moves = self._encoder.num_points()
-        policy_target = torch.zeros((n, num_moves))
-        value_target = torch.zeros((n,))
+        optimizer = SGD(self._model.parameters(), lr=lr)
+        value_loss_fn = nn.MSELoss()
 
-        for i in range(n):
-            action = experience.actions[i]
-            policy_target[i][action] = experience.advantages[i]
-            reward = experience.rewards[i]
-            value_target[i] = reward
+        states_tensor = experience.states
+        actions_tensor = experience.actions
+        advantages_tensor = experience.advantages
+        rewards_tensor = experience.rewards
 
-        self._model.fit(experience.states,
-            [policy_target, value_target],
-            batch_size=batch_size, epochs=1)
+        value_target = rewards_tensor.view(-1, 1)
+
+        dataset = TensorDataset(states_tensor, actions_tensor, advantages_tensor, value_target)
+        data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+        for states_batch, actions_batch, advantages_batch, value_target_batch in data_loader:
+            optimizer.zero_grad()
+
+            policy_pred, value_pred = self._model(states_batch)
+
+            # Policy loss: -E[advantage * log(pi(action|state))]
+            log_policy_preds = torch.log(torch.clamp(policy_pred, 1e-12))
+            selected_log_probs = log_policy_preds[torch.arange(len(actions_batch)), actions_batch]
+            policy_loss = -1 * torch.mean(advantages_batch * selected_log_probs)
+
+            value_loss = value_loss_fn(value_pred, value_target_batch)
+
+            total_loss = policy_loss + 0.5 * value_loss
+
+            total_loss.backward()
+            optimizer.step()
 
     def serialize(self, h5file):
-        h5file.create_group('encoder')
-        h5file['encoder'].attrs['name'] = self._encoder.name()
-        h5file['encoder'].attrs['board_width'] = self._encoder.board_width
-        h5file['encoder'].attrs['board_height'] = self._encoder.board_height
-        h5file.create_group('model')
-        kerasutil.save_model_to_hdf5_group(self._model, h5file['model'])
+        encoder_group = h5file.create_group('encoder')
+        model_group = h5file.create_group('model')
+
+        # Save encoder attributes
+        encoder_group.attrs['name'] = self._encoder.name()
+        encoder_group.attrs['board_width'] = self._encoder.board_width
+        encoder_group.attrs['board_height'] = self._encoder.board_height
+
+        # Save model state_dict
+        model_state_dict = self._model.state_dict()
+        for key, tensor in model_state_dict.items():
+            model_group.create_dataset(key, data=tensor.cpu().numpy())
 
 
+def load_ac_agent(h5file: h5py.File, model_class: torch.nn.Module):
+    """Loads an agent from an HDF5 file."""
+    # Load encoder attributes
+    encoder_group = h5file['encoder']
+    encoder_name = encoder_group.attrs['name']
+    board_width = encoder_group.attrs['board_width']
+    board_height = encoder_group.attrs['board_height']
 
-def load_ac_agent(h5file):
-    model = kerasutil.load_model_from_hdf5_group(h5file['model'])
-    encoder_name = h5file['encoder'].attrs['name']
-    if not isinstance(encoder_name, str):
-        encoder_name = encoder_name.decode('ascii')
-    board_width = h5file['encoder'].attrs['board_width']
-    board_height = h5file['encoder'].attrs['board_height']
-
-    encoder = encoders.get_encoder_by_name(
+    # Recreate the encoder
+    encoder = get_encoder_by_name(
         encoder_name,
-        (board_width, board_height))
+        (board_width, board_height)
+    )
 
+    model = model_class(encoder)
+
+    # Reconstruct the state_dict from the HDF5 file
+    model_group = h5file['model']
+    state_dict = {}
+    for key, dataset in model_group.items():
+        state_dict[key] = torch.from_numpy(dataset[()])
+
+    # Load the weights into the model
+    model.load_state_dict(state_dict)
+
+    # Create and return the new agent
     return ACAgent(model, encoder)

@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from collections import namedtuple
 
-from DLCF.types import Player, Point
+from DLCF.DLCFtypes import Player, Point
 
 class Territory(object):
     def __init__(self, territory_map):
