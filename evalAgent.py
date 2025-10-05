@@ -1,0 +1,75 @@
+import h5py
+import argparse
+
+from DLCF import rl
+from tqdm import tqdm
+from Model import Model
+from typing import Tuple
+from DLCF.rl import ACAgent
+from collections import namedtuple
+from DLCF.cfBoard import GameState, Player
+
+class GameRecord(namedtuple('GameRecord', 'winner')):
+    pass
+
+def simulate_game(black_player: ACAgent, white_player: ACAgent, board_size: Tuple[int, int], verbose:bool = False):
+    moves = []
+    game = GameState.new_game(board_size)
+
+    agents = {
+        Player.black: black_player,
+        Player.white: white_player
+    }
+    while not game.is_over():
+        next_move = agents[game.next_player].select_move(game)
+        moves.append(next_move)
+        game = game.apply_move(next_move)
+
+    winner = game.compute_game_result()
+    if verbose:
+        game.board.visualize()
+        print("Winner is player: ", winner)
+        print()
+
+    return GameRecord(winner=winner)
+
+
+def evalAgent(agent1_path: str, agent2_path: str, num_games: int, board_size: Tuple[int, int], verbose:bool = False):
+    agent1 = rl.load_ac_agent(h5py.File(agent1_path), Model)
+    agent2 = rl.load_ac_agent(h5py.File(agent2_path), Model)
+
+    wins = 0
+    losses = 0
+    color1 = Player.black
+    for _ in tqdm(range(num_games)):
+        if color1 == Player.black:
+            black_player, white_player = agent1, agent2
+        else:
+            white_player, black_player = agent1, agent2
+
+        game_record = simulate_game(black_player, white_player, board_size, verbose=verbose)
+        if game_record.winner == color1:
+            wins += 1
+        else:
+            losses += 1
+        color1 = color1.other
+    print('Agent 1 record: %d/%d' % (wins, wins + losses))
+
+    return wins / wins + losses
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--agent1', required=True)
+    parser.add_argument('--agent2', required=True)
+    parser.add_argument('--num-games', '-n', type=int, default=10)
+    parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
+    parser.add_argument('--verbose', action="store_true")
+
+    args = parser.parse_args()
+
+    agent1_path = args.agent1
+    agent2_path = args.agent2
+    num_games = args.num_games
+    board_size = args.board_size
+
+    evalAgent(agent1_path, agent2_path, num_games, board_size, verbose=args.verbose)

@@ -1,10 +1,26 @@
-import argparse
 import h5py
+import argparse
 
-from DLCF import agent
 from DLCF import rl
+from Model import Model
+from typing import List
 
-def main():
+def trainAgent(learning_agent_filename: str, experience_files: List[str], updated_agent_filename: str, learning_rate: float, batch_size: int):
+    learning_agent = rl.load_ac_agent(h5py.File(learning_agent_filename), Model)
+
+    for exp_filename in experience_files:
+        exp_buffer = rl.load_experience(h5py.File(exp_filename))
+
+        learning_agent.train(
+            exp_buffer,
+            lr=learning_rate,
+            batch_size=batch_size)
+
+    with h5py.File(updated_agent_filename, 'w') as updated_agent_outf:
+        learning_agent.serialize(updated_agent_outf)
+
+
+if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--learning-agent', type=str, required=True)
     parser.add_argument('--agent-out', type=str, required=True)
@@ -19,21 +35,4 @@ def main():
     learning_rate = args.lr
     batch_size = args.bs
 
-    learning_agent = rl.load_ac_agent(h5py.File(learning_agent_filename))
-
-    for exp_filename in experience_files:
-        exp_buffer = rl.load_experience(h5py.File(exp_filename))
-
-        agent.train_agent(learning_agent, lr=learning_rate, batch_size=batch_size)
-
-        learning_agent.train(
-            exp_buffer,
-            lr=learning_rate,
-            batch_size=batch_size)
-
-    with h5py.File(updated_agent_filename, 'w') as updated_agent_outf:
-        learning_agent.serialize(updated_agent_outf)
-
-
-if __name__ == '__main__':
-    main()
+    trainAgent(learning_agent_filename, experience_files, updated_agent_filename, learning_rate, batch_size)

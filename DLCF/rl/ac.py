@@ -1,15 +1,16 @@
 import h5py
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
 from torch.optim import SGD
 from torch.utils.data import TensorDataset, DataLoader
 
-from DLCF import goboard
+from DLCF import cfBoard
 from DLCF.agent import Agent
+from DLCF.cfBoard import GameState
 from DLCF.encoders import Encoder, get_encoder_by_name
 from DLCF.rl.experience import ExperienceBuffer, ExperienceCollector
-from DLCF.goboard import GameState
 
 class ACAgent(Agent):
     def __init__(self, model, encoder: Encoder):
@@ -25,7 +26,7 @@ class ACAgent(Agent):
 
         X = self._encoder.encode(game_state)
 
-        actions, values = self._model(X)
+        actions, values = self._model(X.unsqueeze(0))
         move_probs = actions
         estimated_value = values.item()
 
@@ -53,8 +54,7 @@ class ACAgent(Agent):
                 estimated_value=estimated_value)
 
         point = self._encoder.decode_point_index(point_idx)
-        return goboard.Move.play(point)
-
+        return cfBoard.Move.play(point)
 
     def train(self, experience: ExperienceBuffer, lr:float=0.1, batch_size:int=128):
         self._model.train()
@@ -72,7 +72,7 @@ class ACAgent(Agent):
         dataset = TensorDataset(states_tensor, actions_tensor, advantages_tensor, value_target)
         data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-        for states_batch, actions_batch, advantages_batch, value_target_batch in data_loader:
+        for states_batch, actions_batch, advantages_batch, value_target_batch in tqdm(data_loader, desc="Training agent"):
             optimizer.zero_grad()
 
             policy_pred, value_pred = self._model(states_batch)
@@ -88,6 +88,7 @@ class ACAgent(Agent):
 
             total_loss.backward()
             optimizer.step()
+
 
     def serialize(self, h5file):
         encoder_group = h5file.create_group('encoder')

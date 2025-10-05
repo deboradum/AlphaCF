@@ -4,7 +4,7 @@ from typing import Tuple
 
 
 from DLCF.encoders.base import Encoder
-from DLCF.goboard import Move, GameState
+from DLCF.cfBoard import Move, GameState
 from DLCF.DLCFtypes import Player, Point
 
 BLACK_IDX = 0

@@ -1,19 +1,19 @@
 import argparse
 import h5py
-from collections import namedtuple
-from tqdm import tqdm
 
-from initAgent import Model
-
-from constants import WIN_REWARD, LOSS_REWARD
 from DLCF import rl
-from DLCF.goboard import GameState, Player
+from tqdm import tqdm
+from Model import Model
+from typing import Tuple
 from DLCF.rl import ACAgent
-# from DLCF.goboard_fast import GameState, Player
+from collections import namedtuple
+from DLCF.cfBoard import GameState, Player
+from constants import WIN_REWARD, LOSS_REWARD
 
 
 class GameRecord(namedtuple('GameRecord', 'winner')):
     pass
+
 
 def simulate_game(black_player: ACAgent, white_player: ACAgent, verbose:bool=False):
     game = GameState.new_game(BOARD_SIZE)
@@ -34,21 +34,10 @@ def simulate_game(black_player: ACAgent, white_player: ACAgent, verbose:bool=Fal
 
     return GameRecord(winner=winner)
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
-    parser.add_argument('--learning-agent', type=str, required=True)
-    parser.add_argument('--experience-out', type=str, required=True)
-    parser.add_argument('--num-games', '-n', type=int, default=10)
 
-    args = parser.parse_args()
-
-    agent_filename = args.learning_agent
-    experience_filename = args.experience_out
-    num_games = args.num_games
-
+def selfPlay(agent_filename: str, experience_filename: str, num_games: int, board_size: Tuple[int, int]):
     global BOARD_SIZE
-    BOARD_SIZE = args.board_size
+    BOARD_SIZE = board_size
 
     agent1 = rl.load_ac_agent(h5py.File(agent_filename), Model)
     agent2 = rl.load_ac_agent(h5py.File(agent_filename), Model)
@@ -59,7 +48,7 @@ def main():
     agent1.set_collector(collector1)
     agent2.set_collector(collector2)
 
-    for _ in tqdm(range(num_games)):
+    for _ in tqdm(range(num_games), desc="Generating experience"):
         collector1.begin_episode()
         collector2.begin_episode()
 
@@ -76,5 +65,19 @@ def main():
     with h5py.File(experience_filename, 'w') as experience_outf:
         experience.serialize(experience_outf)
 
+
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
+    parser.add_argument('--learning-agent', type=str, required=True)
+    parser.add_argument('--experience-out', type=str, required=True)
+    parser.add_argument('--num-games', '-n', type=int, default=10)
+
+    args = parser.parse_args()
+
+    agent_filename = args.learning_agent
+    experience_filename = args.experience_out
+    num_games = args.num_games
+    board_size = args.board_size
+
+    selfPlay(agent_filename, experience_filename, num_games, tuple(board_size))

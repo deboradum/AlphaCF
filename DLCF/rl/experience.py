@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 class ExperienceCollector:
     def __init__(self):
@@ -69,8 +70,13 @@ def combine_experience(collectors):
         combined_advantages)
 
 def load_experience(h5file):
+    states = np.array(h5file['experience']['states'])
+    actions = np.array(h5file['experience']['actions'])
+    rewards = np.array(h5file['experience']['rewards'])
+    advantages = np.array(h5file['experience']['advantages'])
+
     return ExperienceBuffer(
-        states=torch.Tensor(h5file['experience']['states']),
-        actions=torch.Tensor(h5file['experience']['actions']),
-        rewards=torch.Tensor(h5file['experience']['rewards']),
-        advantages=torch.Tensor(h5file['experience']['advantages']))
+        states=torch.tensor(states, dtype=torch.float32),
+        actions=torch.tensor(actions, dtype=torch.long),
+        rewards=torch.tensor(rewards, dtype=torch.float32),
+        advantages=torch.tensor(advantages, dtype=torch.float32))

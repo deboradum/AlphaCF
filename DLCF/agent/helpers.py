@@ -1,2 +1,2 @@
 from DLCF.DLCFtypes import Point
-from DLCF.goboard import Board
+from DLCF.cfBoard import Board
