@@ -41,7 +41,7 @@ def evalAgent(agent1_path: str, agent2_path: str, num_games: int, board_size: Tu
     wins = 0
     losses = 0
     color1 = Player.black
-    for _ in tqdm(range(num_games)):
+    for _ in tqdm(range(num_games), desc="Evaluating agent against old version"):
         if color1 == Player.black:
             black_player, white_player = agent1, agent2
         else:
@@ -53,9 +53,9 @@ def evalAgent(agent1_path: str, agent2_path: str, num_games: int, board_size: Tu
         else:
             losses += 1
         color1 = color1.other
-    print('Agent 1 record: %d/%d' % (wins, wins + losses))
+    print(f'Agent 1 record: {wins}/{wins + losses} ({wins / (wins+losses)})%')
 
-    return wins / wins + losses
+    return wins / (wins + losses)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
