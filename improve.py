@@ -1,4 +1,5 @@
 import os
+import torch
 import argparse
 
 from typing import Tuple
@@ -16,22 +17,23 @@ def improve(
     num_games_per_iteration: int,
     learning_rate: float,
     batch_size: int,
+    device: str,
     verbose: bool = False,
 ):
     agent_base = "./agents/newAgent"
     if old_agent_path is None:
         os.makedirs(agent_base, exist_ok=True)
 
-        old_agent_path = f"{agent_base}/gen1"
+        old_agent_path = f"{agent_base}/gen0"
         initAgent(board_size=board_size, encoder_name=encoder_name, output_file=old_agent_path)
 
-    current_generation = 1
+    current_generation = 0
 
     experience_base_path = f"{agent_base}/experiences"
     os.makedirs(experience_base_path, exist_ok=True)
     gen_experiences = []
     gen_iteration = 0
-    while current_generation < num_generations+1:
+    while current_generation < num_generations:
         experience_filepath = f"{experience_base_path}/gen1_{gen_iteration}"
         selfPlay(
         # selfPlayMultiThreaded(
@@ -43,7 +45,7 @@ def improve(
         )
         gen_experiences.append(experience_filepath)
 
-        new_agent_path = f"{agent_base}/gen{current_generation}"
+        new_agent_path = f"{agent_base}/gen{current_generation+1}"
         trainAgent(
             learning_agent_filename=old_agent_path,
             experience_files=gen_experiences,
@@ -87,12 +89,12 @@ if __name__ == "__main__":
     parser.add_argument('--agent', type=str, required=False)
     parser.add_argument('--encoder-name', type=str, default="connectFour")
     parser.add_argument('--num-generations', type=int, default=100)
-    parser.add_argument('--num_games_per_iteration', type=int, default=10000)
+    parser.add_argument('--num-games-per-iteration', type=int, default=10000)
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--bs', type=int, default=512)
     parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
+    parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
     parser.add_argument('--verbose', action="store_true")
-
     args = parser.parse_args()
 
     agent_path = args.agent
@@ -102,7 +104,15 @@ if __name__ == "__main__":
     learning_rate = args.lr
     batch_size = args.bs
     board_size = args.board_size
+    device = args.device
     verbose = args.verbose
+
+    if device == 'cuda' and not torch.cuda.is_available():
+        print("CUDA not available, falling back to CPU.")
+        device = 'cpu'
+    elif device == 'mps' and not torch.backends.mps.is_available():
+        print("MPS not available, falling back to CPU.")
+        device = 'cpu'
 
     improve(
         old_agent_path=agent_path,
@@ -112,5 +122,6 @@ if __name__ == "__main__":
         num_games_per_iteration=num_games_per_iteration,
         learning_rate=learning_rate,
         batch_size=batch_size,
+        device=device,
         verbose=verbose,
     )
