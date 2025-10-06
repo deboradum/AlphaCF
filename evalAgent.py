@@ -34,9 +34,9 @@ def simulate_game(black_player: ACAgent, white_player: ACAgent, board_size: Tupl
     return GameRecord(winner=winner)
 
 
-def evalAgent(agent1_path: str, agent2_path: str, num_games: int, board_size: Tuple[int, int], verbose:bool = False):
-    agent1 = rl.load_ac_agent(h5py.File(agent1_path), Model)
-    agent2 = rl.load_ac_agent(h5py.File(agent2_path), Model)
+def evalAgent(agent1_path: str, agent2_path: str, num_games: int, board_size: Tuple[int, int], device: str = "cpu", verbose:bool = False):
+    agent1 = rl.load_ac_agent(h5py.File(agent1_path), Model, device=device)
+    agent2 = rl.load_ac_agent(h5py.File(agent2_path), Model, device=device)
 
     wins = 0
     losses = 0
@@ -63,6 +63,7 @@ if __name__ == '__main__':
     parser.add_argument('--agent2', required=True)
     parser.add_argument('--num-games', '-n', type=int, default=10)
     parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
+    parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
     parser.add_argument('--verbose', action="store_true")
 
     args = parser.parse_args()
@@ -71,5 +72,6 @@ if __name__ == '__main__':
     agent2_path = args.agent2
     num_games = args.num_games
     board_size = args.board_size
+    device = args.device
 
-    evalAgent(agent1_path, agent2_path, num_games, board_size, verbose=args.verbose)
+    evalAgent(agent1_path, agent2_path, num_games, board_size, device=device, verbose=args.verbose)

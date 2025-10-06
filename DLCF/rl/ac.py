@@ -13,10 +13,11 @@ from DLCF.encoders import Encoder, get_encoder_by_name
 from DLCF.rl.experience import ExperienceBuffer, ExperienceCollector
 
 class ACAgent(Agent):
-    def __init__(self, model, encoder: Encoder):
+    def __init__(self, model, encoder: Encoder, device: str = "cpu"):
         self._model = model
         self._encoder = encoder
         self._collector = None
+        self.device = device
 
     def set_collector(self, collector: ExperienceCollector):
         self._collector = collector
@@ -26,11 +27,15 @@ class ACAgent(Agent):
 
         X = self._encoder.encode(game_state)
 
-        actions, values = self._model(X.unsqueeze(0))
+        actions, values = self._model(X.unsqueeze(0).to(self.device))
         move_probs = actions
         estimated_value = values.item()
 
-        valid_move_mask = torch.zeros(num_moves, dtype=torch.bool)
+        # TODO: Check permorance difference
+        # move_probs = actions.cpu()  # TODO: Or not?
+        # valid_move_mask = torch.zeros(num_moves, dtype=torch.bool)
+
+        valid_move_mask = torch.zeros(num_moves, dtype=torch.bool, device=self.device)
         for move in game_state.legal_moves():
             # Convert each valid Move object back to its corresponding index
             move_idx = self._encoder.encode_point(move.point)
@@ -73,7 +78,15 @@ class ACAgent(Agent):
         data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
         for states_batch, actions_batch, advantages_batch, value_target_batch in tqdm(data_loader, desc="Training agent"):
+            states_batch = states_batch.to(self.device)
+            actions_batch = actions_batch.to(self.device)
+            advantages_batch = advantages_batch.to(self.device)
+            value_target_batch = value_target_batch.to(self.device)
+
             optimizer.zero_grad()
+
+            # print(states_batch)
+            # exit()
 
             policy_pred, value_pred = self._model(states_batch)
 
@@ -105,7 +118,8 @@ class ACAgent(Agent):
             model_group.create_dataset(key, data=tensor.cpu().numpy())
 
 
-def load_ac_agent(h5file: h5py.File, model_class: torch.nn.Module):
+# def load_ac_agent(h5file: h5py.File, model_class: torch.nn.Module, device: str = "cpu"):
+def load_ac_agent(h5file: h5py.File, model_class: torch.nn.Module, device: str):
     """Loads an agent from an HDF5 file."""
     # Load encoder attributes
     encoder_group = h5file['encoder']
@@ -129,6 +143,7 @@ def load_ac_agent(h5file: h5py.File, model_class: torch.nn.Module):
 
     # Load the weights into the model
     model.load_state_dict(state_dict)
+    model.to(device)
 
     # Create and return the new agent
-    return ACAgent(model, encoder)
+    return ACAgent(model, encoder, device=device)

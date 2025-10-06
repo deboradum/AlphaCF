@@ -3,7 +3,7 @@ import torch
 import argparse
 
 from typing import Tuple
-from selfPlay import selfPlay, selfPlayMultiThreaded
+from selfPlay import selfPlay
 from evalAgent import evalAgent
 from initAgent import initAgent
 from trainAgent import trainAgent
@@ -34,14 +34,13 @@ def improve(
     gen_experiences = []
     gen_iteration = 0
     while current_generation < num_generations:
-        experience_filepath = f"{experience_base_path}/gen1_{gen_iteration}"
+        experience_filepath = f"{experience_base_path}/gen{current_generation}_{gen_iteration}"
         selfPlay(
-        # selfPlayMultiThreaded(
             agent_filename=old_agent_path,
             experience_filename=experience_filepath,
             num_games=num_games_per_iteration,
             board_size=board_size,
-            # num_workers=16,
+            device="cpu",
         )
         gen_experiences.append(experience_filepath)
 
@@ -51,7 +50,8 @@ def improve(
             experience_files=gen_experiences,
             updated_agent_filename=new_agent_path,
             learning_rate=learning_rate,
-            batch_size=batch_size
+            batch_size=batch_size,
+            device=device,
         )
 
         win_rate_agent_1 = evalAgent(
@@ -59,6 +59,7 @@ def improve(
             agent2_path=new_agent_path,
             num_games=num_games_per_iteration,
             board_size=board_size,
+            device="cpu",
             verbose=verbose,
         )
 

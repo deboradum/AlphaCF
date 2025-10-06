@@ -7,10 +7,11 @@ from DLCF import encoders
 from DLCF.rl import ACAgent
 
 
-def initAgent(board_size: Tuple[int, int], encoder_name: str, output_file: str):
+def initAgent(board_size: Tuple[int, int], encoder_name: str, output_file: str, device: str = "cpu"):
     encoder = encoders.get_encoder_by_name(encoder_name, board_size)
 
     model = Model(encoder)
+    model.to(device)
 
     new_agent = ACAgent(model, encoder)
     with h5py.File(output_file, 'w') as outf:
@@ -23,11 +24,13 @@ if __name__ == '__main__':
     parser.add_argument('--encoder-name', type=str, default="connectFour")
     parser.add_argument('--hidden-size', type=int, default=512)
     parser.add_argument('--output-file', type=str)
+    parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
 
     args = parser.parse_args()
 
     board_size = args.board_size
     output_file = args.output_file
     encoder_name = args.encoder_name
+    device = args.device
 
-    initAgent(tuple(board_size), encoder_name, output_file)
+    initAgent(tuple(board_size), encoder_name, output_file, device=device)

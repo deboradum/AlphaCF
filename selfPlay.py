@@ -36,65 +36,9 @@ def simulate_game(black_player: ACAgent, white_player: ACAgent, board_size: Tupl
     return GameRecord(winner=winner)
 
 
-def run_game_worker(game_idx: int, agent_filename: str, board_size: Tuple[int, int]):
-    """
-    Worker function that simulates a single game and returns the experience.
-    'game_idx' is just a placeholder to make each call to the worker unique.
-    """
-    agent1 = rl.load_ac_agent(h5py.File(agent_filename, 'r'), Model)
-    agent2 = rl.load_ac_agent(h5py.File(agent_filename, 'r'), Model)
-
-    collector1 = rl.ExperienceCollector()
-    collector2 = rl.ExperienceCollector()
-
-    agent1.set_collector(collector1)
-    agent2.set_collector(collector2)
-
-    collector1.begin_episode()
-    collector2.begin_episode()
-
-    # Note: simulate_game now needs board_size passed to it
-    game_record = simulate_game(agent1, agent2, board_size)
-
-    if game_record.winner == Player.black:
-        collector1.complete_episode(reward=WIN_REWARD)
-        collector2.complete_episode(reward=LOSS_REWARD)
-    else:
-        collector2.complete_episode(reward=WIN_REWARD)
-        collector1.complete_episode(reward=LOSS_REWARD)
-
-    # Return the collected experience for this single game
-    return collector1, collector2
-
-
-def selfPlayMultiThreaded(agent_filename: str, experience_filename: str, num_games: int, board_size: Tuple[int, int], num_workers: int):
-    # Use partial to create a new function with some arguments pre-filled.
-    # This is needed because pool.map only accepts one iterable argument.
-    worker_func = partial(run_game_worker, agent_filename=agent_filename, board_size=board_size)
-
-    all_collectors = []
-
-    # Create the pool of worker processes
-    # Using 'with' ensures the pool is properly closed
-    with mp.Pool(processes=num_workers) as pool:
-        # Use tqdm to show progress as tasks are completed by the pool
-        # pool.imap_unordered is often more responsive for progress bars
-        game_indices = range(num_games)
-        pbar = tqdm(pool.imap_unordered(worker_func, game_indices), total=num_games, desc="Generating experience")
-
-        for collector1, collector2 in pbar:
-            all_collectors.append(collector1)
-            all_collectors.append(collector2)
-
-    # 3. Combine the experience from all the workers
-    experience = rl.combine_experience(all_collectors)
-    with h5py.File(experience_filename, 'w') as experience_outf:
-        experience.serialize(experience_outf)
-
-
-def selfPlay(agent_filename: str, experience_filename: str, num_games: int, board_size: Tuple[int, int]):
-    agent1 = rl.load_ac_agent(h5py.File(agent_filename), Model)
-    agent2 = rl.load_ac_agent(h5py.File(agent_filename), Model)
+def selfPlay(agent_filename: str, experience_filename: str, num_games: int, board_size: Tuple[int, int], device: str = "cpu"):
+    agent1 = rl.load_ac_agent(h5py.File(agent_filename), Model, device=device)
+    agent2 = rl.load_ac_agent(h5py.File(agent_filename), Model, device=device)
 
     collector1 = rl.ExperienceCollector()
     collector2 = rl.ExperienceCollector()
@@ -126,6 +70,7 @@ if __name__ == '__main__':
     parser.add_argument('--learning-agent', type=str, required=True)
     parser.add_argument('--experience-out', type=str, required=True)
     parser.add_argument('--num-games', '-n', type=int, default=10)
+    parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
 
     args = parser.parse_args()
 
@@ -133,5 +78,6 @@ if __name__ == '__main__':
     experience_filename = args.experience_out
     num_games = args.num_games
     board_size = args.board_size
+    device = args.device
 
-    selfPlay(agent_filename, experience_filename, num_games, tuple(board_size))
+    selfPlay(agent_filename, experience_filename, num_games, tuple(board_size), device=device)
