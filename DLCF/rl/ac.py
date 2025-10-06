@@ -27,13 +27,8 @@ class ACAgent(Agent):
 
         X = self._encoder.encode(game_state)
 
-        actions, values = self._model(X.unsqueeze(0).to(self.device))
-        move_probs = actions
+        policy_logits, values = self._model(X.unsqueeze(0).to(self.device))
         estimated_value = values.item()
-
-        # TODO: Check permorance difference
-        # move_probs = actions.cpu()  # TODO: Or not?
-        # valid_move_mask = torch.zeros(num_moves, dtype=torch.bool)
 
         valid_move_mask = torch.zeros(num_moves, dtype=torch.bool, device=self.device)
         for move in game_state.legal_moves():
@@ -41,16 +36,12 @@ class ACAgent(Agent):
             move_idx = self._encoder.encode_point(move.point)
             valid_move_mask[move_idx] = True
 
-        masked_probs = move_probs * valid_move_mask.float()
-        if torch.sum(masked_probs) > 0:
-            masked_probs = masked_probs / torch.sum(masked_probs)
-        else:
-            print("This should not happen!")
-            # Failsafe: if model gives 0 probability to all valid moves,
-            # choose uniformly from the valid moves.
-            masked_probs = valid_move_mask.float() / torch.sum(valid_move_mask.float())
+        masked_logits = policy_logits.squeeze(0).clone()
+        masked_logits[~valid_move_mask] = float('-inf')
 
-        point_idx = torch.multinomial(masked_probs, 1).item()
+        move_probs = nn.functional.softmax(masked_logits, dim=-1)
+
+        point_idx = torch.multinomial(move_probs, 1).item()
 
         if self._collector is not None:
             self._collector.record_decision(
@@ -85,15 +76,13 @@ class ACAgent(Agent):
 
             optimizer.zero_grad()
 
-            # print(states_batch)
-            # exit()
+            policy_logits, value_pred = self._model(states_batch)
 
-            policy_pred, value_pred = self._model(states_batch)
+            log_policy_preds = nn.functional.log_softmax(policy_logits.squeeze(0), dim=-1)
+            selected_log_probs = log_policy_preds[torch.arange(len(actions_batch)), actions_batch]
 
             # Policy loss: -E[advantage * log(pi(action|state))]
-            log_policy_preds = torch.log(torch.clamp(policy_pred, 1e-12))
-            selected_log_probs = log_policy_preds[torch.arange(len(actions_batch)), actions_batch]
-            policy_loss = -1 * torch.mean(advantages_batch * selected_log_probs)
+            policy_loss = -torch.mean(advantages_batch * selected_log_probs)
 
             value_loss = value_loss_fn(value_pred, value_target_batch)
 

@@ -32,7 +32,7 @@ class Model(nn.Module):
                 nn.Linear(self.hidden_size, self.hidden_size),
                 nn.ReLU(),
                 nn.Linear(self.hidden_size, encoder.num_points()),
-                nn.Softmax(dim=-1),
+                # nn.Softmax(dim=-1),
             ]
         )
 
