@@ -1,5 +1,6 @@
 import os
 import torch
+import random
 import argparse
 
 from typing import Tuple
@@ -9,9 +10,10 @@ from initAgent import initAgent
 from trainAgent import trainAgent
 
 
+# TODO: wandb logging
 def improve(
     old_agent_path: str | None,
-    encoder_name:str,
+    encoder_name: str,
     board_size: Tuple[int, int],
     num_generations: int,
     num_games_per_iteration: int,
@@ -23,20 +25,24 @@ def improve(
     agent_base = "./agents/newAgent"
     if old_agent_path is None:
         os.makedirs(agent_base, exist_ok=True)
-
         old_agent_path = f"{agent_base}/gen0"
         initAgent(board_size=board_size, encoder_name=encoder_name, output_file=old_agent_path)
 
-    current_generation = 0
-
     experience_base_path = f"{agent_base}/experiences"
     os.makedirs(experience_base_path, exist_ok=True)
+
     gen_experiences = []
+    current_generation = int(old_agent_path.split("gen")[-1]) if "gen" in old_agent_path else 0
     gen_iteration = 0
+    last_agents = [old_agent_path]
+
     while current_generation < num_generations:
+        # Randomly choose self-play opponent from last 10 networks
+        opponent_path = random.choice(last_agents)
         experience_filepath = f"{experience_base_path}/gen{current_generation}_{gen_iteration}"
+
         selfPlay(
-            agent_filename=old_agent_path,
+            agent_filename=opponent_path,
             experience_filename=experience_filepath,
             num_games=num_games_per_iteration,
             board_size=board_size,
@@ -44,7 +50,7 @@ def improve(
         )
         gen_experiences.append(experience_filepath)
 
-        new_agent_path = f"{agent_base}/gen{current_generation+1}"
+        new_agent_path = f"{agent_base}/gen{current_generation + 1}"
         trainAgent(
             learning_agent_filename=old_agent_path,
             experience_files=gen_experiences,
@@ -64,26 +70,28 @@ def improve(
         )
 
         gen_iteration += 1
+        # If new netowrk is better
         if win_rate_agent_1 < 0.5:
-            previous_agent_path = old_agent_path
-            previous_gen_number = current_generation - 1
             old_agent_path = new_agent_path
-
-            if previous_gen_number > 0 and previous_gen_number % 10 != 0:
-                if os.path.exists(previous_agent_path):
-                    os.remove(previous_agent_path)
-
-            for exp_file in gen_experiences:
-                if os.path.exists(exp_file):
-                    os.remove(exp_file)
-
             current_generation += 1
-            gen_experiences = []
-            print(f"New agent was better after {gen_iteration} iterations. Going to generation {current_generation} now.")
             gen_iteration = 0
+            gen_experiences = []
+
+            last_agents.append(new_agent_path)
+            if len(last_agents) > 10:
+                oldest = last_agents.pop(0)
+                gen_num = int(oldest.split("gen")[-1])
+                if gen_num % 10 != 0 and os.path.exists(oldest):
+                    os.remove(oldest)
+
+            for exp_file in os.listdir(experience_base_path):
+                os.remove(os.path.join(experience_base_path, exp_file))
+
+            print(f"New agent was better after {gen_iteration} iterations. Going to generation {current_generation} now.")
         else:
             if os.path.exists(new_agent_path):
                 os.remove(new_agent_path)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
