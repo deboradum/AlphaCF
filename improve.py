@@ -74,7 +74,6 @@ def improve(
         if win_rate_agent_1 < 0.5:
             old_agent_path = new_agent_path
             current_generation += 1
-            gen_iteration = 0
             gen_experiences = []
 
             last_agents.append(new_agent_path)
@@ -88,6 +87,7 @@ def improve(
                 os.remove(os.path.join(experience_base_path, exp_file))
 
             print(f"New agent was better after {gen_iteration} iterations. Going to generation {current_generation} now.")
+            gen_iteration = 0
         else:
             if os.path.exists(new_agent_path):
                 os.remove(new_agent_path)
