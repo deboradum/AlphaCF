@@ -55,9 +55,12 @@ def selfPlay(agent_filename: str, experience_filename: str, num_games: int, boar
         if game_record.winner == Player.black:
             collector1.complete_episode(reward=WIN_REWARD)
             collector2.complete_episode(reward=LOSS_REWARD)
-        else:
+        elif game_record.winner == Player.white:
             collector2.complete_episode(reward=WIN_REWARD)
             collector1.complete_episode(reward=LOSS_REWARD)
+        else: # Draw
+            collector1.complete_episode(reward=0)
+            collector2.complete_episode(reward=0)
 
     experience = rl.combine_experience([collector1, collector2])
     with h5py.File(experience_filename, 'w') as experience_outf:

@@ -78,7 +78,7 @@ class ACAgent(Agent):
 
             policy_logits, value_pred = self._model(states_batch)
 
-            log_policy_preds = nn.functional.log_softmax(policy_logits.squeeze(0), dim=-1)
+            log_policy_preds = nn.functional.log_softmax(policy_logits, dim=-1)
             selected_log_probs = log_policy_preds[torch.arange(len(actions_batch)), actions_batch]
 
             # Policy loss: -E[advantage * log(pi(action|state))]

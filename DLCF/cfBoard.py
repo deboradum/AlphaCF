@@ -185,9 +185,8 @@ class GameState():
                                 break
                         if is_a_win:
                             return player
-
-        # TODO: How to represent draw?
+        # Draw
         if len(board._grid) == board.num_rows * board.num_cols:
-            return "draw"
+            return None
 
         return None
