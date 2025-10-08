@@ -1,5 +1,6 @@
 import os
 import torch
+import wandb
 import random
 import argparse
 
@@ -46,6 +47,7 @@ def improve(
     current_generation = int(old_agent_path.split("gen")[-1])
     gen_iteration = 0
     last_agents = [old_agent_path]
+    num_experiences = 0
 
     while current_generation < num_generations:
         # Randomly choose self-play opponent from last 10 networks
@@ -62,7 +64,7 @@ def improve(
         gen_experiences.append(experience_filepath)
 
         new_agent_path = f"{agent_base}/gen{current_generation + 1}"
-        trainAgent(
+        policy_loss, value_loss, total_loss = trainAgent(
             learning_agent_filename=old_agent_path,
             experience_files=gen_experiences,
             updated_agent_filename=new_agent_path,
@@ -79,6 +81,17 @@ def improve(
             device="cpu",
             verbose=verbose,
         )
+
+        num_experiences += num_games_per_iteration
+        wandb.log({
+            "win_rate": 1 - win_rate_agent_1,
+            "generation": current_generation,
+            "iteration": gen_iteration,
+            "total_experiences": num_experiences,
+            "policy_loss": policy_loss,
+            "value_loss": value_loss,
+            "total_loss": total_loss,
+        })
 
         gen_iteration += 1
         # If new netowrk is better
@@ -134,6 +147,21 @@ if __name__ == "__main__":
         print("MPS not available, falling back to CPU.")
         device = 'cpu'
 
+    wandb.init(
+        project="AlphaConnectFour",
+        name=agent_name,
+        config={
+            "agent_name": agent_name,
+            "encoder": encoder_name,
+            "learning_rate": learning_rate,
+            "batch_size": batch_size,
+            "generations": num_generations,
+            "games_per_iteration": num_games_per_iteration,
+            "board_size": board_size,
+            "device": device,
+        }
+    )
+
     improve(
         agent_name=agent_name,
         encoder_name=encoder_name,
@@ -145,3 +173,5 @@ if __name__ == "__main__":
         device=device,
         verbose=verbose,
     )
+
+    wandb.finish()
