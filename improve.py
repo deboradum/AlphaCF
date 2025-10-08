@@ -19,6 +19,7 @@ def improve(
     num_generations: int,
     num_games_per_iteration: int,
     learning_rate: float,
+    learning_rate_decay: float,
     batch_size: int,
     device: str,
     verbose: bool = False,
@@ -48,6 +49,7 @@ def improve(
     gen_iteration = 0
     last_agents = [old_agent_path]
     num_experiences = 0
+    current_lr = learning_rate
 
     while current_generation < num_generations:
         # Randomly choose self-play opponent from last 10 networks
@@ -68,7 +70,7 @@ def improve(
             learning_agent_filename=old_agent_path,
             experience_files=gen_experiences,
             updated_agent_filename=new_agent_path,
-            learning_rate=learning_rate,
+            learning_rate=current_lr,
             batch_size=batch_size,
             device=device,
         )
@@ -112,6 +114,7 @@ def improve(
 
             print(f"New agent was better after {gen_iteration} iterations. Going to generation {current_generation} now.")
             gen_iteration = 0
+            current_lr *= learning_rate_decay
         else:
             if os.path.exists(new_agent_path):
                 os.remove(new_agent_path)
@@ -124,6 +127,7 @@ if __name__ == "__main__":
     parser.add_argument('--num-generations', type=int, default=100)
     parser.add_argument('--num-games-per-iteration', type=int, default=10000)
     parser.add_argument('--lr', type=float, default=0.0001)
+    parser.add_argument('--lr-decay', type=float, default=0.995)
     parser.add_argument('--bs', type=int, default=512)
     parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
@@ -135,6 +139,7 @@ if __name__ == "__main__":
     num_generations = args.num_generations
     num_games_per_iteration = args.num_games_per_iteration
     learning_rate = args.lr
+    learning_rate_decay = args.lr_decay
     batch_size = args.bs
     board_size = args.board_size
     device = args.device
@@ -154,6 +159,7 @@ if __name__ == "__main__":
             "agent_name": agent_name,
             "encoder": encoder_name,
             "learning_rate": learning_rate,
+            "learning_rate_decay": learning_rate_decay,
             "batch_size": batch_size,
             "generations": num_generations,
             "games_per_iteration": num_games_per_iteration,
@@ -169,6 +175,7 @@ if __name__ == "__main__":
         num_generations=num_generations,
         num_games_per_iteration=num_games_per_iteration,
         learning_rate=learning_rate,
+        learning_rate_decay=learning_rate_decay,
         batch_size=batch_size,
         device=device,
         verbose=verbose,
