@@ -12,7 +12,7 @@ from trainAgent import trainAgent
 
 # TODO: wandb logging
 def improve(
-    old_agent_path: str | None,
+    agent_name: str,
     encoder_name: str,
     board_size: Tuple[int, int],
     num_generations: int,
@@ -22,17 +22,28 @@ def improve(
     device: str,
     verbose: bool = False,
 ):
-    agent_base = "./agents/newAgent"
-    if old_agent_path is None:
+    agent_base = f"./agents/{agent_name}"
+    if not os.path.isdir(agent_base):
         os.makedirs(agent_base, exist_ok=True)
         old_agent_path = f"{agent_base}/gen0"
         initAgent(board_size=board_size, encoder_name=encoder_name, output_file=old_agent_path)
+    else:
+        gen_files = [f for f in os.listdir(agent_base) if f.startswith('gen') and f[3:].isdigit()]
+        if not gen_files:
+            # The directory exists but is empty or has no valid 'gen' files
+            old_agent_path = f"{agent_base}/gen0"
+            initAgent(board_size=board_size, encoder_name=encoder_name, output_file=old_agent_path)
+        else:
+            highest_gen_num = max([int(f[3:]) for f in gen_files])
+            old_agent_path = f"{agent_base}/gen{highest_gen_num}"
+            print(f"Resuming agent {agent_base} from generation {highest_gen_num}")
+
 
     experience_base_path = f"{agent_base}/experiences"
     os.makedirs(experience_base_path, exist_ok=True)
 
     gen_experiences = []
-    current_generation = int(old_agent_path.split("gen")[-1]) if "gen" in old_agent_path else 0
+    current_generation = int(old_agent_path.split("gen")[-1])
     gen_iteration = 0
     last_agents = [old_agent_path]
 
@@ -63,7 +74,7 @@ def improve(
         win_rate_agent_1 = evalAgent(
             agent1_path=old_agent_path,
             agent2_path=new_agent_path,
-            num_games=num_games_per_iteration,
+            num_games=min(num_games_per_iteration, 10000),
             board_size=board_size,
             device="cpu",
             verbose=verbose,
@@ -95,7 +106,7 @@ def improve(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--agent', type=str, required=False)
+    parser.add_argument('--agent', type=str, default="newAgent")
     parser.add_argument('--encoder-name', type=str, default="connectFour")
     parser.add_argument('--num-generations', type=int, default=100)
     parser.add_argument('--num-games-per-iteration', type=int, default=10000)
@@ -106,7 +117,7 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', action="store_true")
     args = parser.parse_args()
 
-    agent_path = args.agent
+    agent_name = args.agent
     encoder_name = args.encoder_name
     num_generations = args.num_generations
     num_games_per_iteration = args.num_games_per_iteration
@@ -124,7 +135,7 @@ if __name__ == "__main__":
         device = 'cpu'
 
     improve(
-        old_agent_path=agent_path,
+        agent_name=agent_name,
         encoder_name=encoder_name,
         board_size=tuple(board_size),
         num_generations=num_generations,
