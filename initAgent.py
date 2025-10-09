@@ -1,4 +1,3 @@
-import h5py
 import argparse
 
 from Model import Model
@@ -14,8 +13,7 @@ def initAgent(board_size: Tuple[int, int], encoder_name: str, output_file: str, 
     model.to(device)
 
     new_agent = ACAgent(model, encoder)
-    with h5py.File(output_file, 'w') as outf:
-        new_agent.serialize(outf)
+    new_agent.save(output_file)
 
 
 if __name__ == '__main__':

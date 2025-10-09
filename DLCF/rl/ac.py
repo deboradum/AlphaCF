@@ -1,4 +1,3 @@
-import h5py
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -13,8 +12,8 @@ from DLCF.encoders import Encoder, get_encoder_by_name
 from DLCF.rl.experience import ExperienceBuffer, ExperienceCollector
 
 class ACAgent(Agent):
-    def __init__(self, model, encoder: Encoder, device: str = "cpu"):
-        self._model = model
+    def __init__(self, model: Agent, encoder: Encoder, device: str = "cpu"):
+        self._model: Agent = model
         self._encoder = encoder
         self._collector = None
         self.device = device
@@ -110,6 +109,7 @@ class ACAgent(Agent):
             num_batches += 1
 
             total_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=1)
             optimizer.step()
 
         return (total_policy_loss / num_batches,  total_value_loss / num_batches,  total_combined_loss / num_batches)
@@ -128,33 +128,28 @@ class ACAgent(Agent):
         for key, tensor in model_state_dict.items():
             model_group.create_dataset(key, data=tensor.cpu().numpy())
 
+    def save(self, path: str):
+        torch.save({
+            'encoder_config': {
+                'name': self._encoder.name(),
+                'board_width': self._encoder.board_width,
+                'board_height': self._encoder.board_height,
+            },
+            'model_state_dict': self._model.state_dict(),
+        }, path)
 
-# def load_ac_agent(h5file: h5py.File, model_class: torch.nn.Module, device: str = "cpu"):
-def load_ac_agent(h5file: h5py.File, model_class: torch.nn.Module, device: str):
-    """Loads an agent from an HDF5 file."""
-    # Load encoder attributes
-    encoder_group = h5file['encoder']
-    encoder_name = encoder_group.attrs['name']
-    board_width = encoder_group.attrs['board_width']
-    board_height = encoder_group.attrs['board_height']
+    @classmethod
+    def load(cls, path: str, model_class: torch.nn.Module, device: str):
+        data = torch.load(path, map_location=device, weights_only=False)
 
-    # Recreate the encoder
-    encoder = get_encoder_by_name(
-        encoder_name,
-        (board_height, board_width)
-    )
+        encoder_config = data['encoder_config']
+        encoder = get_encoder_by_name(
+            encoder_config['name'],
+            (encoder_config['board_height'], encoder_config['board_width'])
+        )
 
-    model = model_class(encoder)
+        model = model_class(encoder)
+        model.load_state_dict(data['model_state_dict'])
+        model.to(device)
 
-    # Reconstruct the state_dict from the HDF5 file
-    model_group = h5file['model']
-    state_dict = {}
-    for key, dataset in model_group.items():
-        state_dict[key] = torch.from_numpy(dataset[()])
-
-    # Load the weights into the model
-    model.load_state_dict(state_dict)
-    model.to(device)
-
-    # Create and return the new agent
-    return ACAgent(model, encoder, device=device)
+        return cls(model, encoder, device=device)

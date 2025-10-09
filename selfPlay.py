@@ -1,12 +1,9 @@
 import argparse
-import h5py
-import multiprocessing as mp
 from DLCF import rl
 from tqdm import tqdm
 from Model import Model
 from typing import Tuple
 from DLCF.rl import ACAgent
-from functools import partial
 from collections import namedtuple
 from DLCF.cfBoard import GameState, Player
 from constants import WIN_REWARD, LOSS_REWARD
@@ -37,8 +34,8 @@ def simulate_game(black_player: ACAgent, white_player: ACAgent, board_size: Tupl
 
 
 def selfPlay(agent_filename: str, experience_filename: str, num_games: int, board_size: Tuple[int, int], device: str = "cpu"):
-    agent1 = rl.load_ac_agent(h5py.File(agent_filename), Model, device=device)
-    agent2 = rl.load_ac_agent(h5py.File(agent_filename), Model, device=device)
+    agent1 = rl.ACAgent.load(agent_filename, Model, device=device)
+    agent2 = rl.ACAgent.load(agent_filename, Model, device=device)
 
     collector1 = rl.ExperienceCollector()
     collector2 = rl.ExperienceCollector()
@@ -63,8 +60,7 @@ def selfPlay(agent_filename: str, experience_filename: str, num_games: int, boar
             collector2.complete_episode(reward=0)
 
     experience = rl.combine_experience([collector1, collector2])
-    with h5py.File(experience_filename, 'w') as experience_outf:
-        experience.serialize(experience_outf)
+    experience.save(experience_filename)
 
 
 if __name__ == '__main__':

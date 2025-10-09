@@ -1,4 +1,3 @@
-import h5py
 import argparse
 
 from DLCF import rl
@@ -35,8 +34,8 @@ def simulate_game(black_player: ACAgent, white_player: ACAgent, board_size: Tupl
 
 
 def evalAgent(agent1_path: str, agent2_path: str, num_games: int, board_size: Tuple[int, int], device: str = "cpu", verbose:bool = False):
-    agent1 = rl.load_ac_agent(h5py.File(agent1_path), Model, device=device)
-    agent2 = rl.load_ac_agent(h5py.File(agent2_path), Model, device=device)
+    agent1 = rl.ACAgent.load(agent1_path, Model, device=device)
+    agent2 = rl.ACAgent.load(agent2_path, Model, device=device)
 
     wins = 0
     losses = 0

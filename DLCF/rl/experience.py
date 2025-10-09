@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 from typing import List
 
 class ExperienceCollector:
@@ -51,12 +50,23 @@ class ExperienceBuffer:
         self.rewards = rewards
         self.advantages = advantages
 
-    def serialize(self, h5file):
-        h5file.create_group('experience')
-        h5file['experience'].create_dataset('states', data=self.states.numpy())
-        h5file['experience'].create_dataset('actions', data=self.actions.numpy())
-        h5file['experience'].create_dataset('rewards', data=self.rewards.numpy())
-        h5file['experience'].create_dataset('advantages', data=self.advantages.numpy())
+    def save(self, path: str):
+        torch.save({
+            'states': self.states,
+            'actions': self.actions,
+            'rewards': self.rewards,
+            'advantages': self.advantages
+        }, path)
+
+    @classmethod
+    def load(cls, path: str):
+        data = torch.load(path)
+        return cls(
+            states=data['states'],
+            actions=data['actions'],
+            rewards=data['rewards'],
+            advantages=data['advantages']
+        )
 
 def combine_experience(collectors: List[ExperienceCollector]):
     combined_states = torch.cat([torch.stack(c.states) for c in collectors], dim=0)
@@ -69,15 +79,3 @@ def combine_experience(collectors: List[ExperienceCollector]):
         combined_actions,
         combined_rewards,
         combined_advantages)
-
-def load_experience(h5file):
-    states = np.array(h5file['experience']['states'])
-    actions = np.array(h5file['experience']['actions'])
-    rewards = np.array(h5file['experience']['rewards'])
-    advantages = np.array(h5file['experience']['advantages'])
-
-    return ExperienceBuffer(
-        states=torch.tensor(states, dtype=torch.float32),
-        actions=torch.tensor(actions, dtype=torch.long),
-        rewards=torch.tensor(rewards, dtype=torch.float32),
-        advantages=torch.tensor(advantages, dtype=torch.float32))

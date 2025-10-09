@@ -11,7 +11,6 @@ from initAgent import initAgent
 from trainAgent import trainAgent
 
 
-# TODO: wandb logging
 def improve(
     agent_name: str,
     encoder_name: str,
@@ -88,6 +87,7 @@ def improve(
         wandb.log({
             "win_rate": 1 - win_rate_agent_1,
             "generation": current_generation,
+            "current_learing_rate": current_lr,
             "iteration": gen_iteration,
             "total_experiences": num_experiences,
             "policy_loss": policy_loss,

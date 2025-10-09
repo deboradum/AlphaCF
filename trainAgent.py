@@ -1,4 +1,3 @@
-import h5py
 import argparse
 
 from DLCF import rl
@@ -6,7 +5,7 @@ from Model import Model
 from typing import List
 
 def trainAgent(learning_agent_filename: str, experience_files: List[str], updated_agent_filename: str, learning_rate: float, batch_size: int, device: str = "cpu"):
-    learning_agent = rl.load_ac_agent(h5py.File(learning_agent_filename), Model, device=device)
+    learning_agent = rl.ACAgent.load(learning_agent_filename, Model, device=device)
 
     total_policy_loss = 0
     total_value_loss = 0
@@ -14,7 +13,7 @@ def trainAgent(learning_agent_filename: str, experience_files: List[str], update
     num_exp_files = len(experience_files)
 
     for exp_filename in experience_files:
-        exp_buffer = rl.load_experience(h5py.File(exp_filename))
+        exp_buffer = rl.ExperienceBuffer.load(exp_filename)
 
         policy_loss, value_loss, combined_loss = learning_agent.train(
             exp_buffer,
@@ -26,8 +25,7 @@ def trainAgent(learning_agent_filename: str, experience_files: List[str], update
         total_combined_loss += combined_loss
         num_exp_files +=1
 
-    with h5py.File(updated_agent_filename, 'w') as updated_agent_outf:
-        learning_agent.serialize(updated_agent_outf)
+    learning_agent.save(updated_agent_filename)
 
     return (total_policy_loss / num_exp_files,
             total_value_loss / num_exp_files,
