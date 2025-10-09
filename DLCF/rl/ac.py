@@ -114,20 +114,6 @@ class ACAgent(Agent):
 
         return (total_policy_loss / num_batches,  total_value_loss / num_batches,  total_combined_loss / num_batches)
 
-    def serialize(self, h5file):
-        encoder_group = h5file.create_group('encoder')
-        model_group = h5file.create_group('model')
-
-        # Save encoder attributes
-        encoder_group.attrs['name'] = self._encoder.name()
-        encoder_group.attrs['board_width'] = self._encoder.board_width
-        encoder_group.attrs['board_height'] = self._encoder.board_height
-
-        # Save model state_dict
-        model_state_dict = self._model.state_dict()
-        for key, tensor in model_state_dict.items():
-            model_group.create_dataset(key, data=tensor.cpu().numpy())
-
     def save(self, path: str):
         torch.save({
             'encoder_config': {
