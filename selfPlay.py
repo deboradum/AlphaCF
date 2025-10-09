@@ -33,7 +33,7 @@ def simulate_game(black_player: ACAgent, white_player: ACAgent, board_size: Tupl
     return GameRecord(winner=winner)
 
 
-def selfPlay(agent_filename: str, experience_filename: str, num_games: int, board_size: Tuple[int, int], device: str = "cpu"):
+def selfPlay(agent_filename: str, experience_filename: str, num_games: int, board_size: Tuple[int, int], device: str = "cpu", worker_id: int = 0):
     agent1 = rl.ACAgent.load(agent_filename, Model, device=device)
     agent2 = rl.ACAgent.load(agent_filename, Model, device=device)
 
@@ -43,7 +43,7 @@ def selfPlay(agent_filename: str, experience_filename: str, num_games: int, boar
     agent1.set_collector(collector1)
     agent2.set_collector(collector2)
 
-    for _ in tqdm(range(num_games), desc="Generating experience"):
+    for _ in tqdm(range(num_games), desc=f"Generating experience (worker {worker_id})", position=worker_id):
         collector1.begin_episode()
         collector2.begin_episode()
 

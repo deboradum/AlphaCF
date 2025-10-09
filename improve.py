@@ -3,6 +3,7 @@ import torch
 import wandb
 import random
 import argparse
+import multiprocessing
 
 from typing import Tuple
 from selfPlay import selfPlay
@@ -11,19 +12,7 @@ from initAgent import initAgent
 from trainAgent import trainAgent
 
 
-def improve(
-    agent_name: str,
-    encoder_name: str,
-    board_size: Tuple[int, int],
-    num_generations: int,
-    num_games_per_iteration: int,
-    learning_rate: float,
-    learning_rate_decay: float,
-    batch_size: int,
-    device: str,
-    verbose: bool = False,
-):
-    agent_base = f"./agents/{agent_name}"
+def maybe_initialize_agent(agent_base: str, encoder_name: str):
     if not os.path.isdir(agent_base):
         os.makedirs(agent_base, exist_ok=True)
         old_agent_path = f"{agent_base}/gen0"
@@ -39,6 +28,24 @@ def improve(
             old_agent_path = f"{agent_base}/gen{highest_gen_num}"
             print(f"Resuming agent {agent_base} from generation {highest_gen_num}")
 
+    return old_agent_path
+
+
+def improve(
+    num_workers: int,
+    agent_name: str,
+    encoder_name: str,
+    board_size: Tuple[int, int],
+    num_generations: int,
+    num_games_per_iteration: int,
+    learning_rate: float,
+    learning_rate_decay: float,
+    batch_size: int,
+    device: str,
+    verbose: bool = False,
+):
+    agent_base = f"./agents/{agent_name}"
+    old_agent_path = maybe_initialize_agent(agent_base, encoder_name)
 
     experience_base_path = f"{agent_base}/experiences"
     os.makedirs(experience_base_path, exist_ok=True)
@@ -51,18 +58,32 @@ def improve(
     current_lr = learning_rate
 
     while current_generation < num_generations:
-        # Randomly choose self-play opponent from last 10 networks
         opponent_path = random.choice(last_agents)
-        experience_filepath = f"{experience_base_path}/gen{current_generation}_{gen_iteration}"
 
-        selfPlay(
-            agent_filename=opponent_path,
-            experience_filename=experience_filepath,
-            num_games=num_games_per_iteration,
-            board_size=board_size,
-            device="cpu",
-        )
-        gen_experiences.append(experience_filepath)
+        processes = []
+        experience_files_this_iteration = []
+        games_per_worker = num_games_per_iteration // num_workers
+        for i in range(num_workers):
+            experience_filepath = f"{experience_base_path}/gen{current_generation}_{gen_iteration}_part{i}"
+            experience_files_this_iteration.append(experience_filepath)
+
+            p = multiprocessing.Process(
+                target=selfPlay,
+                kwargs={
+                    'agent_filename': opponent_path,
+                    'experience_filename': experience_filepath,
+                    'num_games': games_per_worker,
+                    'board_size': board_size,
+                    'device': "cpu",
+                    'worker_id': i
+                }
+            )
+            processes.append(p)
+            p.start()
+
+        for p in processes:
+            p.join()
+        gen_experiences.extend(experience_files_this_iteration)
 
         new_agent_path = f"{agent_base}/gen{current_generation + 1}"
         policy_loss, value_loss, total_loss = trainAgent(
@@ -112,7 +133,7 @@ def improve(
             for exp_file in os.listdir(experience_base_path):
                 os.remove(os.path.join(experience_base_path, exp_file))
 
-            print(f"New agent was better after {gen_iteration} iterations. Going to generation {current_generation} now.")
+            print(f"\nNew agent was better after {gen_iteration} iterations. Going to generation {current_generation} now.")
             gen_iteration = 0
             current_lr *= learning_rate_decay
         else:
@@ -121,8 +142,14 @@ def improve(
 
 
 if __name__ == "__main__":
+    try:
+        multiprocessing.set_start_method('spawn')
+    except RuntimeError:
+        pass
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--agent', type=str, default="newAgent")
+    parser.add_argument('--num-workers', type=int, default=1)
     parser.add_argument('--encoder-name', type=str, default="connectFour")
     parser.add_argument('--num-generations', type=int, default=100)
     parser.add_argument('--num-games-per-iteration', type=int, default=10000)
@@ -135,6 +162,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     agent_name = args.agent
+    num_workers = args.num_workers
     encoder_name = args.encoder_name
     num_generations = args.num_generations
     num_games_per_iteration = args.num_games_per_iteration
@@ -156,6 +184,7 @@ if __name__ == "__main__":
         project="AlphaConnectFour",
         name=agent_name,
         config={
+            "num_workers": num_workers,
             "agent_name": agent_name,
             "encoder": encoder_name,
             "learning_rate": learning_rate,
@@ -169,6 +198,7 @@ if __name__ == "__main__":
     )
 
     improve(
+        num_workers=num_workers,
         agent_name=agent_name,
         encoder_name=encoder_name,
         board_size=tuple(board_size),
