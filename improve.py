@@ -124,7 +124,7 @@ def improve(
             gen_experiences = []
 
             last_agents.append(new_agent_path)
-            if len(last_agents) > 5:
+            if len(last_agents) > 15:
                 oldest = last_agents.pop(0)
                 gen_num = int(oldest.split("gen")[-1])
                 if gen_num % 10 != 0 and os.path.exists(oldest):
@@ -140,8 +140,8 @@ def improve(
             if os.path.exists(new_agent_path):
                 os.remove(new_agent_path)
 
-        # If agent is not better after 15 iterations, model is either locally optimal or too heavily overfitted
-        if gen_iteration > 15:
+        # If agent is not better after 8 iterations, model is either locally optimal or too heavily overfitted
+        if gen_iteration > 8:
             break
 
 
