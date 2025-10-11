@@ -1,11 +1,13 @@
 import torch
+import random
 import torch.nn as nn
 from tqdm import tqdm
 
-from torch.optim import SGD
+from torch.optim import Adam
 from torch.utils.data import TensorDataset, DataLoader
 
 from DLCF import cfBoard
+from DLCF.DLCFtypes import Player
 from DLCF.agent import Agent
 from DLCF.cfBoard import GameState
 from DLCF.encoders import Encoder, get_encoder_by_name
@@ -28,6 +30,43 @@ class ACAgent(Agent):
 
         return estimated_value
 
+    def debug_move(self, game_state: GameState, move_probs: torch.Tensor, point_idx: int):
+        print("\n--- DEBUG MOVE ---")
+
+        # Reshape probabilities to match the board dimensions for easier reading
+        board_probs = move_probs.detach().numpy().reshape(
+            (self._encoder.board_height, self._encoder.board_width)
+        )
+
+        print("Policy Network Move Probabilities:")
+        print("Black: 'X', White: 'O'")
+        print('Black (X)' if game_state.next_player == Player.black else 'White (O)', "to play")
+        # Print formatted probabilities for each column
+        for row_idx in range(self._encoder.board_height):
+            row_items = []
+            for col_idx in range(self._encoder.board_width):
+                # Point objects are 1-indexed in cfBoard
+                point = cfBoard.Point(row=row_idx + 1, col=col_idx + 1)
+                player = game_state.board.get(point)
+
+                if player is not None:
+                    # If a stone is on the board, show X or O
+                    stone = '  X  ' if player == Player.black else '  O  '
+                    row_items.append(stone)
+                else:
+                    # Otherwise, show the move probability
+                    prob = board_probs[row_idx, col_idx]
+                    row_items.append(f"{prob:.3f}")
+
+            print(f"| {' | '.join(row_items)} |")
+
+        selected_point = self._encoder.decode_point_index(point_idx)
+        selected_prob = move_probs[point_idx].item()
+
+        print(f"\nSelected Move: Play in column {selected_point.col}")
+        print(f"Probability of Selected Move: {selected_prob:.4f}")
+        print("------------------\n")
+
     def sample_move(self, game_state: GameState):
         num_moves = self._encoder.board_width * self._encoder.board_height
 
@@ -49,10 +88,21 @@ class ACAgent(Agent):
 
         point_idx = torch.multinomial(move_probs, 1).item()
 
+        debug = False
+        if debug:
+            self.debug_move(game_state, move_probs, point_idx)
+
         return X, point_idx, estimated_value
 
     def select_move(self, game_state: GameState):
-        X, point_idx, estimated_value = self.sample_move(game_state)
+        epsilon = 0.2
+        if random.random() < epsilon:
+            move = random.choice(game_state.legal_moves())
+            X = self._encoder.encode(game_state)
+            point_idx = self._encoder.encode_point(move.point)
+            estimated_value = 0
+        else:
+            X, point_idx, estimated_value = self.sample_move(game_state)
 
         if self._collector is not None:
             self._collector.record_decision(
@@ -64,10 +114,10 @@ class ACAgent(Agent):
 
         return cfBoard.Move.play(point)
 
-    def train(self, experience: ExperienceBuffer, lr:float=0.1, batch_size:int=128):
+    def train(self, experience: ExperienceBuffer, lr:float=0.0001, batch_size:int=128):
         self._model.train()
 
-        optimizer = SGD(self._model.parameters(), lr=lr)
+        optimizer = Adam(self._model.parameters(), lr=lr)
         value_loss_fn = nn.MSELoss()
 
         states_tensor = experience.states
