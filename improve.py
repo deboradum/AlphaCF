@@ -41,6 +41,7 @@ def improve(
     learning_rate: float,
     learning_rate_decay: float,
     batch_size: int,
+    entropy_coef: float,
     device: str,
     verbose: bool = False,
 ):
@@ -56,6 +57,7 @@ def improve(
     last_agents = [old_agent_path]
     num_experiences = 0
     current_lr = learning_rate
+    current_entropy_coef = entropy_coef
 
     while current_generation < num_generations:
         opponent_path = random.choice(last_agents)
@@ -86,12 +88,13 @@ def improve(
         gen_experiences.extend(experience_files_this_iteration)
 
         new_agent_path = f"{agent_base}/gen{current_generation + 1}"
-        policy_loss, value_loss, total_loss = trainAgent(
+        policy_loss, entropy_loss, value_loss, total_loss = trainAgent(
             learning_agent_filename=old_agent_path,
             experience_files=gen_experiences,
             updated_agent_filename=new_agent_path,
             learning_rate=current_lr,
             batch_size=batch_size,
+            entropy_coef=current_entropy_coef,
             device=device,
         )
 
@@ -112,6 +115,7 @@ def improve(
             "iteration": gen_iteration,
             "total_experiences": num_experiences,
             "policy_loss": policy_loss,
+            "entropy_loss": entropy_loss,
             "value_loss": value_loss,
             "total_loss": total_loss,
         })
@@ -136,6 +140,7 @@ def improve(
             print(f"\nNew agent was better after {gen_iteration} iterations. Going to generation {current_generation} now.")
             gen_iteration = 0
             current_lr *= learning_rate_decay
+            current_entropy_coef *= learning_rate_decay
         else:
             if os.path.exists(new_agent_path):
                 os.remove(new_agent_path)
@@ -158,8 +163,9 @@ if __name__ == "__main__":
     parser.add_argument('--num-generations', type=int, default=100)
     parser.add_argument('--num-games-per-iteration', type=int, default=10000)
     parser.add_argument('--lr', type=float, default=0.0001)
-    parser.add_argument('--lr-decay', type=float, default=0.995)
+    parser.add_argument('--lr-decay', type=float, default=0.99)
     parser.add_argument('--bs', type=int, default=512)
+    parser.add_argument('--entropy-coef', type=float, default=0.001)
     parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
     parser.add_argument('--verbose', action="store_true")
@@ -173,6 +179,7 @@ if __name__ == "__main__":
     learning_rate = args.lr
     learning_rate_decay = args.lr_decay
     batch_size = args.bs
+    entropy_coef = args.entropy_coef
     board_size = args.board_size
     device = args.device
     verbose = args.verbose
@@ -211,6 +218,7 @@ if __name__ == "__main__":
         learning_rate=learning_rate,
         learning_rate_decay=learning_rate_decay,
         batch_size=batch_size,
+        entropy_coef=entropy_coef,
         device=device,
         verbose=verbose,
     )

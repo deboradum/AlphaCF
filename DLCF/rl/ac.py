@@ -95,14 +95,7 @@ class ACAgent(Agent):
         return X, point_idx, estimated_value
 
     def select_move(self, game_state: GameState):
-        epsilon = 0.2
-        if random.random() < epsilon:
-            move = random.choice(game_state.legal_moves())
-            X = self._encoder.encode(game_state)
-            point_idx = self._encoder.encode_point(move.point)
-            estimated_value = 0
-        else:
-            X, point_idx, estimated_value = self.sample_move(game_state)
+        X, point_idx, estimated_value = self.sample_move(game_state)
 
         if self._collector is not None:
             self._collector.record_decision(
@@ -114,7 +107,7 @@ class ACAgent(Agent):
 
         return cfBoard.Move.play(point)
 
-    def train(self, experience: ExperienceBuffer, lr:float=0.0001, batch_size:int=128):
+    def train(self, experience: ExperienceBuffer, lr:float=0.0001, batch_size:int=128, entropy_coef: float = 0.001):
         self._model.train()
 
         optimizer = Adam(self._model.parameters(), lr=lr)
@@ -148,21 +141,33 @@ class ACAgent(Agent):
             log_policy_preds = nn.functional.log_softmax(policy_logits, dim=-1)
             selected_log_probs = log_policy_preds[torch.arange(len(actions_batch)), actions_batch]
 
+            # Encourage entropy to prevent overconfident predicitons (mainly needed early on)
+            policy_probs = log_policy_preds.exp()
+            entropy = -(policy_probs * log_policy_preds).sum(dim=1)
+
             # Policy loss: -E[advantage * log(pi(action|state))]
             policy_loss = -torch.mean(advantages_batch * selected_log_probs)
+            entropy_loss = -entropy_coef * entropy.mean()
             value_loss = value_loss_fn(value_pred, value_target_batch)
-            total_loss = policy_loss + 0.5 * value_loss
+            # L = -E[advantage * log(\pi(action|state))] + \Beta H(\pi(\cdot|state)) + 0.5 * MSE(\hat{V}, V)
+            total_loss = policy_loss + entropy_loss + (0.5 * value_loss)
 
             total_policy_loss += policy_loss.item()
+            total_entropy_loss += entropy_loss.item()
             total_value_loss += value_loss.item()
             total_combined_loss += total_loss.item()
             num_batches += 1
 
             total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=1)
+            torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=0.5)
             optimizer.step()
 
-        return (total_policy_loss / num_batches,  total_value_loss / num_batches,  total_combined_loss / num_batches)
+        return (
+            total_policy_loss / num_batches,
+            total_entropy_loss / num_batches,
+            total_value_loss / num_batches,
+            total_combined_loss / num_batches
+        )
 
     def save(self, path: str):
         torch.save({
