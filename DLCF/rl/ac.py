@@ -124,6 +124,7 @@ class ACAgent(Agent):
         data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
         total_policy_loss = 0
+        total_entropy_loss = 0
         total_value_loss = 0
         total_combined_loss = 0
         num_batches = 0

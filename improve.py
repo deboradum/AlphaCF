@@ -112,6 +112,7 @@ def improve(
             "win_rate": 1 - win_rate_agent_1,
             "generation": current_generation,
             "current_learing_rate": current_lr,
+            "current_entropy_coefficient": current_entropy_coef,
             "iteration": gen_iteration,
             "total_experiences": num_experiences,
             "policy_loss": policy_loss,
