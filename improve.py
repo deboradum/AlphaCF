@@ -169,6 +169,7 @@ if __name__ == "__main__":
     parser.add_argument('--entropy-coef', type=float, default=0.001)
     parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
+    parser.add_argument('--seed', type=int, default=123)
     parser.add_argument('--verbose', action="store_true")
     args = parser.parse_args()
 
@@ -183,7 +184,12 @@ if __name__ == "__main__":
     entropy_coef = args.entropy_coef
     board_size = args.board_size
     device = args.device
+    seed = args.seed
     verbose = args.verbose
+
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
     if device == 'cuda' and not torch.cuda.is_available():
         print("CUDA not available, falling back to CPU.")
@@ -196,6 +202,7 @@ if __name__ == "__main__":
         project="AlphaConnectFour",
         name=agent_name,
         config={
+            "seed": seed,
             "num_workers": num_workers,
             "agent_name": agent_name,
             "encoder": encoder_name,
