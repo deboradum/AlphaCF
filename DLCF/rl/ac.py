@@ -20,6 +20,8 @@ class ACAgent(Agent):
         self._collector = None
         self.device = device
 
+        self.optimizer = None
+
     def set_collector(self, collector: ExperienceCollector):
         self._collector = collector
 
@@ -110,7 +112,8 @@ class ACAgent(Agent):
     def train(self, experience: ExperienceBuffer, lr:float=0.0001, batch_size:int=128, entropy_coef: float = 0.001):
         self._model.train()
 
-        optimizer = Adam(self._model.parameters(), lr=lr)
+        if self.optimizer is None:
+            self.optimizer = Adam(self._model.parameters(), lr=lr)
         value_loss_fn = nn.MSELoss()
 
         states_tensor = experience.states
@@ -127,6 +130,7 @@ class ACAgent(Agent):
         total_entropy_loss = 0
         total_value_loss = 0
         total_combined_loss = 0
+        total_grad_norm = 0
         num_batches = 0
 
         for states_batch, actions_batch, advantages_batch, value_target_batch in tqdm(data_loader, desc="Training agent"):
@@ -134,11 +138,12 @@ class ACAgent(Agent):
             actions_batch = actions_batch.to(self.device)
             advantages_batch = advantages_batch.to(self.device)
             value_target_batch = value_target_batch.to(self.device)
+            # Normalize advantages for better
+            advantages_batch = (advantages_batch - advantages_batch.mean()) / (advantages_batch.std() + 1e-8)
 
-            optimizer.zero_grad()
+            self.optimizer.zero_grad()
 
             policy_logits, value_pred = self._model(states_batch)
-
             log_policy_preds = nn.functional.log_softmax(policy_logits, dim=-1)
             selected_log_probs = log_policy_preds[torch.arange(len(actions_batch)), actions_batch]
 
@@ -153,21 +158,24 @@ class ACAgent(Agent):
             # L = -E[advantage * log(\pi(action|state))] + \Beta H(\pi(\cdot|state)) + 0.5 * MSE(\hat{V}, V)
             total_loss = policy_loss + entropy_loss + (0.5 * value_loss)
 
+            total_loss.backward()
+            grad_norm = torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=0.5)
+            self.optimizer.step()
+
             total_policy_loss += policy_loss.item()
             total_entropy_loss += entropy_loss.item()
             total_value_loss += value_loss.item()
             total_combined_loss += total_loss.item()
+            total_grad_norm += grad_norm
             num_batches += 1
 
-            total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=0.5)
-            optimizer.step()
 
         return (
             total_policy_loss / num_batches,
             total_entropy_loss / num_batches,
             total_value_loss / num_batches,
-            total_combined_loss / num_batches
+            total_combined_loss / num_batches,
+            total_grad_norm / num_batches,
         )
 
     def save(self, path: str):

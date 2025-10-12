@@ -88,7 +88,7 @@ def improve(
         gen_experiences.extend(experience_files_this_iteration)
 
         new_agent_path = f"{agent_base}/gen{current_generation + 1}"
-        policy_loss, entropy_loss, value_loss, total_loss = trainAgent(
+        policy_loss, entropy_loss, value_loss, total_loss, grad_norm = trainAgent(
             learning_agent_filename=old_agent_path,
             experience_files=gen_experiences,
             updated_agent_filename=new_agent_path,
@@ -119,6 +119,7 @@ def improve(
             "entropy_loss": entropy_loss,
             "value_loss": value_loss,
             "total_loss": total_loss,
+            "grad_norm": grad_norm,
         })
 
         gen_iteration += 1
@@ -141,7 +142,7 @@ def improve(
             print(f"\nNew agent was better after {gen_iteration} iterations. Going to generation {current_generation} now.")
             gen_iteration = 0
             current_lr *= learning_rate_decay
-            current_entropy_coef *= learning_rate_decay
+            # current_entropy_coef *= learning_rate_decay
         else:
             if os.path.exists(new_agent_path):
                 os.remove(new_agent_path)
@@ -197,6 +198,8 @@ if __name__ == "__main__":
     elif device == 'mps' and not torch.backends.mps.is_available():
         print("MPS not available, falling back to CPU.")
         device = 'cpu'
+
+    # TODO: also log to wandb the grad norm
 
     wandb.init(
         project="AlphaConnectFour",
