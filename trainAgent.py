@@ -11,13 +11,14 @@ def trainAgent(learning_agent_filename: str, experience_files: List[str], update
     total_entropy_loss = 0
     total_value_loss = 0
     total_combined_loss = 0
-    total_grad_norm = 0
-    num_exp_files = 0
+    total_grad_norm_before = 0
+    total_grad_norm_after = 0
+    num_exp_files = len(experience_files)
 
     for exp_filename in experience_files:
         exp_buffer = rl.ExperienceBuffer.load(exp_filename)
 
-        policy_loss, entropy_loss, value_loss, combined_loss, grad_norm = learning_agent.train(
+        policy_loss, entropy_loss, value_loss, combined_loss, grad_norm_before, grad_norm_after = learning_agent.train(
             exp_buffer,
             lr=learning_rate,
             batch_size=batch_size,
@@ -28,8 +29,8 @@ def trainAgent(learning_agent_filename: str, experience_files: List[str], update
         total_entropy_loss += entropy_loss
         total_value_loss += value_loss
         total_combined_loss += combined_loss
-        total_grad_norm += grad_norm
-        num_exp_files +=1
+        total_grad_norm_before += grad_norm_before
+        total_grad_norm_after += grad_norm_after
 
     learning_agent.save(updated_agent_filename)
 
@@ -37,7 +38,8 @@ def trainAgent(learning_agent_filename: str, experience_files: List[str], update
             total_entropy_loss / num_exp_files,
             total_value_loss / num_exp_files,
             total_combined_loss / num_exp_files,
-            total_grad_norm / num_exp_files,
+            total_grad_norm_before / num_exp_files,
+            total_grad_norm_after / num_exp_files,
             )
 
 if __name__ == '__main__':

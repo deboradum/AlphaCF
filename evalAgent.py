@@ -1,3 +1,4 @@
+import torch
 import argparse
 
 from DLCF import rl
@@ -19,10 +20,11 @@ def simulate_game(black_player: ACAgent, white_player: ACAgent, board_size: Tupl
         Player.black: black_player,
         Player.white: white_player
     }
-    while not game.is_over():
-        next_move = agents[game.next_player].select_move(game)
-        moves.append(next_move)
-        game = game.apply_move(next_move)
+    with torch.no_grad():
+        while not game.is_over():
+            next_move = agents[game.next_player].select_move(game)
+            moves.append(next_move)
+            game = game.apply_move(next_move)
 
     winner = game.compute_game_result()
     if verbose:

@@ -51,7 +51,6 @@ def improve(
     experience_base_path = f"{agent_base}/experiences"
     os.makedirs(experience_base_path, exist_ok=True)
 
-    gen_experiences = []
     current_generation = int(old_agent_path.split("gen")[-1])
     gen_iteration = 0
     last_agents = [old_agent_path]
@@ -85,12 +84,11 @@ def improve(
 
         for p in processes:
             p.join()
-        gen_experiences.extend(experience_files_this_iteration)
 
         new_agent_path = f"{agent_base}/gen{current_generation + 1}"
-        policy_loss, entropy_loss, value_loss, total_loss, grad_norm = trainAgent(
+        policy_loss, entropy_loss, value_loss, total_loss, grad_norm_before_clip, grad_norm_after_clip = trainAgent(
             learning_agent_filename=old_agent_path,
-            experience_files=gen_experiences,
+            experience_files=experience_files_this_iteration,
             updated_agent_filename=new_agent_path,
             learning_rate=current_lr,
             batch_size=batch_size,
@@ -119,7 +117,8 @@ def improve(
             "entropy_loss": entropy_loss,
             "value_loss": value_loss,
             "total_loss": total_loss,
-            "grad_norm": grad_norm,
+            "grad_norm_before_clip": grad_norm_before_clip,
+            "grad_norm_after_clip": grad_norm_after_clip,
         })
 
         gen_iteration += 1
@@ -127,7 +126,6 @@ def improve(
         if win_rate_agent_1 < 0.5:
             old_agent_path = new_agent_path
             current_generation += 1
-            gen_experiences = []
 
             last_agents.append(new_agent_path)
             if len(last_agents) > 15:
@@ -198,8 +196,6 @@ if __name__ == "__main__":
     elif device == 'mps' and not torch.backends.mps.is_available():
         print("MPS not available, falling back to CPU.")
         device = 'cpu'
-
-    # TODO: also log to wandb the grad norm
 
     wandb.init(
         project="AlphaConnectFour",

@@ -130,7 +130,8 @@ class ACAgent(Agent):
         total_entropy_loss = 0
         total_value_loss = 0
         total_combined_loss = 0
-        total_grad_norm = 0
+        total_grad_norm_before = 0
+        total_grad_norm_after = 0
         num_batches = 0
 
         for states_batch, actions_batch, advantages_batch, value_target_batch in tqdm(data_loader, desc="Training agent"):
@@ -156,17 +157,19 @@ class ACAgent(Agent):
             entropy_loss = -entropy_coef * entropy.mean()
             value_loss = value_loss_fn(value_pred, value_target_batch)
             # L = -E[advantage * log(\pi(action|state))] + \Beta H(\pi(\cdot|state)) + 0.5 * MSE(\hat{V}, V)
-            total_loss = policy_loss + entropy_loss + (0.5 * value_loss)
+            total_loss = policy_loss + entropy_loss + (0.25 * value_loss)
 
             total_loss.backward()
-            grad_norm = torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=0.5)
+            grad_norm_before = torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=0.5)
+            grad_norm_after = torch.sqrt(sum(p.grad.norm()**2 for p in self._model.parameters() if p.grad is not None))
             self.optimizer.step()
 
             total_policy_loss += policy_loss.item()
             total_entropy_loss += entropy_loss.item()
             total_value_loss += value_loss.item()
             total_combined_loss += total_loss.item()
-            total_grad_norm += grad_norm
+            total_grad_norm_before += grad_norm_before
+            total_grad_norm_after += grad_norm_after
             num_batches += 1
 
 
@@ -175,7 +178,8 @@ class ACAgent(Agent):
             total_entropy_loss / num_batches,
             total_value_loss / num_batches,
             total_combined_loss / num_batches,
-            total_grad_norm / num_batches,
+            total_grad_norm_before / num_batches,
+            total_grad_norm_after / num_batches,
         )
 
     def save(self, path: str):
