@@ -88,90 +88,104 @@ class ACAgent(Agent):
 
         move_probs = nn.functional.softmax(masked_logits, dim=-1)
 
-        point_idx = torch.multinomial(move_probs, 1).item()
+        dist = torch.distributions.Categorical(move_probs)
+        action_tensor = dist.sample()
+        point_idx = action_tensor.item()
+        log_prob = dist.log_prob(action_tensor)
 
         debug = False
         if debug:
             self.debug_move(game_state, move_probs, point_idx)
 
-        return X, point_idx, estimated_value
+        return X, point_idx, estimated_value, log_prob.item()
 
     def select_move(self, game_state: GameState):
-        X, point_idx, estimated_value = self.sample_move(game_state)
+        X, point_idx, estimated_value, log_prob = self.sample_move(game_state)
 
         if self._collector is not None:
             self._collector.record_decision(
                 state=X,
                 action=point_idx,
-                estimated_value=estimated_value)
+                log_prob=log_prob,
+                estimated_value=estimated_value,
+            )
 
         point = self._encoder.decode_point_index(point_idx)
 
         return cfBoard.Move.play(point)
 
     def train(self, experience: ExperienceBuffer, lr:float=0.0001, batch_size:int=128, entropy_coef: float = 0.001):
+        ppo_epochs = 2
+        clip_epsilon = 2
+
         self._model.train()
 
         if self.optimizer is None:
             self.optimizer = Adam(self._model.parameters(), lr=lr)
         value_loss_fn = nn.MSELoss()
 
-        states_tensor = experience.states
-        actions_tensor = experience.actions
-        advantages_tensor = experience.advantages
-        rewards_tensor = experience.rewards
-
-        value_target = rewards_tensor.view(-1, 1)
-
-        dataset = TensorDataset(states_tensor, actions_tensor, advantages_tensor, value_target)
+        dataset = TensorDataset(
+            experience.states,
+            experience.actions,
+            experience.advantages,
+            experience.rewards,
+            experience.old_log_probs,
+        )
         data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
         total_policy_loss = 0
-        total_entropy_loss = 0
         total_value_loss = 0
+        total_entropy_loss = 0
         total_combined_loss = 0
+
         total_grad_norm_before = 0
         total_grad_norm_after = 0
         num_batches = 0
 
-        for states_batch, actions_batch, advantages_batch, value_target_batch in tqdm(data_loader, desc="Training agent"):
-            states_batch = states_batch.to(self.device)
-            actions_batch = actions_batch.to(self.device)
-            advantages_batch = advantages_batch.to(self.device)
-            value_target_batch = value_target_batch.to(self.device)
-            # Normalize advantages for better
-            advantages_batch = (advantages_batch - advantages_batch.mean()) / (advantages_batch.std() + 1e-8)
+        for _ in tqdm(range(ppo_epochs), desc="Training agent"):
+            for states_batch, actions_batch, advantages_batch, value_target_batch, old_log_probs_batch in data_loader:
+                states_batch = states_batch.to(self.device)
+                actions_batch = actions_batch.to(self.device)
+                advantages_batch = advantages_batch.to(self.device)
+                value_target_batch = value_target_batch.to(self.device).view(-1, 1)
+                old_log_probs_batch = old_log_probs_batch.to(self.device)
 
-            self.optimizer.zero_grad()
+                # Normalize advantages for better
+                advantages_batch = (advantages_batch - advantages_batch.mean()) / (advantages_batch.std() + 1e-8)
 
-            policy_logits, value_pred = self._model(states_batch)
-            log_policy_preds = nn.functional.log_softmax(policy_logits, dim=-1)
-            selected_log_probs = log_policy_preds[torch.arange(len(actions_batch)), actions_batch]
+                self.optimizer.zero_grad()
 
-            # Encourage entropy to prevent overconfident predicitons (mainly needed early on)
-            policy_probs = log_policy_preds.exp()
-            entropy = -(policy_probs * log_policy_preds).sum(dim=1)
+                policy_logits, value_pred = self._model(states_batch)
 
-            # Policy loss: -E[advantage * log(pi(action|state))]
-            policy_loss = -torch.mean(advantages_batch * selected_log_probs)
-            entropy_loss = -entropy_coef * entropy.mean()
-            value_loss = value_loss_fn(value_pred, value_target_batch)
-            # L = -E[advantage * log(\pi(action|state))] + \Beta H(\pi(\cdot|state)) + 0.5 * MSE(\hat{V}, V)
-            total_loss = policy_loss + entropy_loss + (0.5 * value_loss)
+                dist = torch.distributions.Categorical(logits=policy_logits)
+                new_log_probs = dist.log_prob(actions_batch)
 
-            total_loss.backward()
-            grad_norm_before = torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=0.5)
-            grad_norm_after = torch.sqrt(sum(p.grad.norm()**2 for p in self._model.parameters() if p.grad is not None))
-            self.optimizer.step()
+                ratio = torch.exp(new_log_probs - old_log_probs_batch)
 
-            total_policy_loss += policy_loss.item()
-            total_entropy_loss += entropy_loss.item()
-            total_value_loss += value_loss.item()
-            total_combined_loss += total_loss.item()
-            total_grad_norm_before += grad_norm_before
-            total_grad_norm_after += grad_norm_after
-            num_batches += 1
+                surr1 = ratio * advantages_batch
+                surr2 = torch.clamp(ratio, 1.0 - clip_epsilon, 1.0 + clip_epsilon) * advantages_batch
 
+                policy_loss = -torch.min(surr1, surr2).mean()
+
+                value_loss = value_loss_fn(value_pred, value_target_batch)
+
+                entropy_loss = -entropy_coef * dist.entropy().mean()
+
+                total_loss = policy_loss + 0.5 * value_loss + entropy_loss
+
+                total_loss.backward()
+                grad_norm_before = torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=0.5)
+                grad_norm_after = torch.sqrt(sum(p.grad.norm()**2 for p in self._model.parameters() if p.grad is not None))
+                self.optimizer.step()
+
+                total_policy_loss += policy_loss.item()
+                total_value_loss += value_loss.item()
+                total_entropy_loss += entropy_loss.item()
+                total_combined_loss += total_loss.item()
+
+                total_grad_norm_before += grad_norm_before
+                total_grad_norm_after += grad_norm_after
+                num_batches += 1
 
         return (
             total_policy_loss / num_batches,
