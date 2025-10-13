@@ -105,7 +105,7 @@ class GameState():
         if winner is not None:
             return True
 
-        if not self.legal_moves():
+        if len(self.legal_moves()) == 0:
             return True
 
         return False

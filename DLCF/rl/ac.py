@@ -157,7 +157,7 @@ class ACAgent(Agent):
             entropy_loss = -entropy_coef * entropy.mean()
             value_loss = value_loss_fn(value_pred, value_target_batch)
             # L = -E[advantage * log(\pi(action|state))] + \Beta H(\pi(\cdot|state)) + 0.5 * MSE(\hat{V}, V)
-            total_loss = policy_loss + entropy_loss + (0.25 * value_loss)
+            total_loss = policy_loss + entropy_loss + (0.5 * value_loss)
 
             total_loss.backward()
             grad_norm_before = torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=0.5)

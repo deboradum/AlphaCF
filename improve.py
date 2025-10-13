@@ -145,8 +145,8 @@ def improve(
             if os.path.exists(new_agent_path):
                 os.remove(new_agent_path)
 
-        # If agent is not better after 8 iterations, model is either locally optimal or too heavily overfitted
-        if gen_iteration > 8:
+        # If agent is not better after 5 iterations, model is either locally optimal or too heavily overfitted
+        if gen_iteration > 5:
             break
 
 
