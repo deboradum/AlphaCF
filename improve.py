@@ -140,7 +140,7 @@ def improve(
             print(f"\nNew agent was better after {gen_iteration} iterations. Going to generation {current_generation} now.")
             gen_iteration = 0
             current_lr *= learning_rate_decay
-            # current_entropy_coef *= learning_rate_decay
+            current_entropy_coef *= learning_rate_decay
         else:
             if os.path.exists(new_agent_path):
                 os.remove(new_agent_path)
