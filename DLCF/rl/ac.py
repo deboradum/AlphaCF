@@ -114,10 +114,7 @@ class ACAgent(Agent):
 
         return cfBoard.Move.play(point)
 
-    def train(self, experience: ExperienceBuffer, lr:float=0.0001, batch_size:int=128, entropy_coef: float = 0.001):
-        ppo_epochs = 2
-        clip_epsilon = 2
-
+    def train(self, experience: ExperienceBuffer, lr:float=0.0001, batch_size:int=128, entropy_coef: float = 0.001, ppo_epochs: int = 3, clip_epsilon: float = 0.2):
         self._model.train()
 
         if self.optimizer is None:

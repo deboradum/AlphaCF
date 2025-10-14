@@ -42,6 +42,8 @@ def improve(
     learning_rate_decay: float,
     batch_size: int,
     entropy_coef: float,
+    ppo_epochs: int,
+    clip_epsilon: float,
     device: str,
     verbose: bool = False,
 ):
@@ -93,6 +95,8 @@ def improve(
             learning_rate=current_lr,
             batch_size=batch_size,
             entropy_coef=current_entropy_coef,
+            ppo_epochs=ppo_epochs,
+            clip_epsilon=clip_epsilon,
             device=device,
         )
 
@@ -166,6 +170,8 @@ if __name__ == "__main__":
     parser.add_argument('--lr-decay', type=float, default=0.99)
     parser.add_argument('--bs', type=int, default=512)
     parser.add_argument('--entropy-coef', type=float, default=0.001)
+    parser.add_argument('--ppo-epochs', type=int, default=3)
+    parser.add_argument('--clip-epsilon', type=float, default=0.02)
     parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
     parser.add_argument('--seed', type=int, default=123)
@@ -181,6 +187,8 @@ if __name__ == "__main__":
     learning_rate_decay = args.lr_decay
     batch_size = args.bs
     entropy_coef = args.entropy_coef
+    ppo_epochs = args.ppo_epochs
+    clip_epsilon = args.clip_epsilon
     board_size = args.board_size
     device = args.device
     seed = args.seed
@@ -207,6 +215,8 @@ if __name__ == "__main__":
             "encoder": encoder_name,
             "learning_rate": learning_rate,
             "learning_rate_decay": learning_rate_decay,
+            "ppo_epochs": ppo_epochs,
+            "clip_epsilon": clip_epsilon,
             "batch_size": batch_size,
             "generations": num_generations,
             "games_per_iteration": num_games_per_iteration,
