@@ -148,7 +148,11 @@ class ACAgent(Agent):
                 old_log_probs_batch = old_log_probs_batch.to(self.device)
 
                 # Normalize advantages for better
-                advantages_batch = (advantages_batch - advantages_batch.mean()) / (advantages_batch.std() + 1e-8)
+                std = advantages_batch.std()
+                if std > 1e-8:
+                    advantages_batch = (advantages_batch - advantages_batch.mean()) / std
+                else:
+                    advantages_batch = advantages_batch - advantages_batch.mean()
 
                 self.optimizer.zero_grad()
 
