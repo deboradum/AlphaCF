@@ -67,4 +67,14 @@ if __name__ == '__main__':
     clip_epsilon = args.clip_epsilon
     device = args.device
 
-    trainAgent(learning_agent_filename, experience_files, updated_agent_filename, learning_rate, batch_size, entropy_coef, device=device)
+    trainAgent(
+        learning_agent_filename=learning_agent_filename,
+        experience_files=experience_files,
+        updated_agent_filename=updated_agent_filename,
+        learning_rate=learning_rate,
+        batch_size=batch_size,
+        entropy_coef=entropy_coef,
+        ppo_epochs=ppo_epochs,
+        clip_epsilon=clip_epsilon,
+        device=device
+    )

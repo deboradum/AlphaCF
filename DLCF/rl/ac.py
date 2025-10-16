@@ -1,16 +1,14 @@
 import torch
-import random
 import torch.nn as nn
 from tqdm import tqdm
 
 from torch.optim import Adam
 from torch.utils.data import TensorDataset, DataLoader
 
-from DLCF import cfBoard
-from DLCF.DLCFtypes import Player
 from DLCF.agent import Agent
-from DLCF.cfBoard import GameState
+from DLCF.DLCFtypes import Player, Point, Move
 from DLCF.encoders import Encoder, get_encoder_by_name
+from DLCF.getGameState import GameStateTemplate
 from DLCF.rl.experience import ExperienceBuffer, ExperienceCollector
 
 class ACAgent(Agent):
@@ -25,14 +23,14 @@ class ACAgent(Agent):
     def set_collector(self, collector: ExperienceCollector):
         self._collector = collector
 
-    def gamestate_value(self, game_state: GameState):
+    def gamestate_value(self, game_state: GameStateTemplate):
         X = self._encoder.encode(game_state)
         _, values = self._model(X.unsqueeze(0).to(self.device))
         estimated_value = values.item()
 
         return estimated_value
 
-    def debug_move(self, game_state: GameState, move_probs: torch.Tensor, point_idx: int):
+    def debug_move(self, game_state: GameStateTemplate, move_probs: torch.Tensor, point_idx: int):
         print("\n--- DEBUG MOVE ---")
 
         # Reshape probabilities to match the board dimensions for easier reading
@@ -48,7 +46,7 @@ class ACAgent(Agent):
             row_items = []
             for col_idx in range(self._encoder.board_width):
                 # Point objects are 1-indexed in cfBoard
-                point = cfBoard.Point(row=row_idx + 1, col=col_idx + 1)
+                point = Point(row=row_idx + 1, col=col_idx + 1)
                 player = game_state.board.get(point)
 
                 if player is not None:
@@ -69,7 +67,7 @@ class ACAgent(Agent):
         print(f"Probability of Selected Move: {selected_prob:.4f}")
         print("------------------\n")
 
-    def sample_move(self, game_state: GameState):
+    def sample_move(self, game_state: GameStateTemplate):
         num_moves = self._encoder.board_width * self._encoder.board_height
 
         X = self._encoder.encode(game_state)
@@ -99,7 +97,7 @@ class ACAgent(Agent):
 
         return X, point_idx, estimated_value, log_prob.item()
 
-    def select_move(self, game_state: GameState):
+    def select_move(self, game_state: GameStateTemplate):
         X, point_idx, estimated_value, log_prob = self.sample_move(game_state)
 
         if self._collector is not None:
@@ -112,7 +110,7 @@ class ACAgent(Agent):
 
         point = self._encoder.decode_point_index(point_idx)
 
-        return cfBoard.Move.play(point)
+        return Move.play(point)
 
     def train(self, experience: ExperienceBuffer, lr:float=0.0001, batch_size:int=128, entropy_coef: float = 0.001, ppo_epochs: int = 3, clip_epsilon: float = 0.2):
         self._model.train()

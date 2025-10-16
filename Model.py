@@ -1,5 +1,5 @@
 import torch.nn as nn
-from DLCF import encoders
+from DLCF.encoders import Encoder
 
 
 class ResidualBlock(nn.Module):
@@ -37,7 +37,7 @@ class ResidualBlock(nn.Module):
         return out
 
 class Model(nn.Module):
-    def __init__(self, encoder: encoders.Encoder):
+    def __init__(self, encoder: Encoder):
         super(Model, self).__init__()
 
         self.num_res_blocks = 2

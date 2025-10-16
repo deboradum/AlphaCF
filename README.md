@@ -9,4 +9,4 @@ AlphaGo like Deep Reinforcement learning for connet four and gomoku. While this 
 - PPO policy loss;
 - Among others.
 
-Run `python improve.py --device <device> --lr <learning_rate> --num-generations 50 --num-games-per-iteration 20000 --num-workers 4` to initialize a new agent and automatically train it for 50 generations. You can also manually do this by using `initAgent.py`, `selfPlay.py`, `trainAgent.py` and `evalAgent.py`.
+Run `python improve.py --game <game_name> --device <device> --lr <learning_rate> --num-generations 50 --num-games-per-iteration 20000 --num-workers 4` to initialize a new agent and automatically train it for 50 generations. You can also manually do this by using `initAgent.py`, `selfPlay.py`, `trainAgent.py` and `evalAgent.py`.

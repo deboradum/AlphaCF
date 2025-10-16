@@ -5,8 +5,10 @@ from tqdm import tqdm
 from Model import Model
 from typing import Tuple
 from DLCF.rl import ACAgent
+from DLCF.DLCFtypes import Player
 from collections import namedtuple
-from DLCF.cfBoard import GameState, Player
+from DLCF.getGameState import getGameState
+
 from constants import WIN_REWARD, LOSS_REWARD
 
 
@@ -14,8 +16,8 @@ class GameRecord(namedtuple('GameRecord', 'winner')):
     pass
 
 
-def simulate_game(black_player: ACAgent, white_player: ACAgent, board_size: Tuple[int, int], verbose:bool=False):
-    game = GameState.new_game(board_size)
+def simulate_game(game_name: str, black_player: ACAgent, white_player: ACAgent, board_size: Tuple[int, int], verbose:bool=False):
+    game = getGameState(game_name=game_name).new_game(board_size)
     agents = {
         Player.black: black_player,
         Player.white: white_player,
@@ -35,7 +37,7 @@ def simulate_game(black_player: ACAgent, white_player: ACAgent, board_size: Tupl
     return GameRecord(winner=winner)
 
 
-def selfPlay(agent_filename: str, experience_filename: str, num_games: int, board_size: Tuple[int, int], device: str = "cpu", worker_id: int = 0):
+def selfPlay(game_name: str, agent_filename: str, experience_filename: str, num_games: int, board_size: Tuple[int, int], device: str = "cpu", worker_id: int = 0):
     agent1 = rl.ACAgent.load(agent_filename, Model, device=device)
     agent2 = rl.ACAgent.load(agent_filename, Model, device=device)
 
@@ -49,7 +51,7 @@ def selfPlay(agent_filename: str, experience_filename: str, num_games: int, boar
         collector1.begin_episode()
         collector2.begin_episode()
 
-        game_record = simulate_game(agent1, agent2, board_size)
+        game_record = simulate_game(game_name, agent1, agent2, board_size)
 
         if game_record.winner == Player.black:
             collector1.complete_episode(reward=WIN_REWARD)
@@ -67,6 +69,7 @@ def selfPlay(agent_filename: str, experience_filename: str, num_games: int, boar
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="connectFour")  # The game name, which should also be the encoder name of that game.
     parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
     parser.add_argument('--learning-agent', type=str, required=True)
     parser.add_argument('--experience-out', type=str, required=True)
@@ -75,10 +78,11 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    game_name = args.game
     agent_filename = args.learning_agent
     experience_filename = args.experience_out
     num_games = args.num_games
     board_size = args.board_size
     device = args.device
 
-    selfPlay(agent_filename, experience_filename, num_games, tuple(board_size), device=device)
+    selfPlay(game_name, agent_filename, experience_filename, num_games, tuple(board_size), device=device)

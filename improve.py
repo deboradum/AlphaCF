@@ -32,6 +32,7 @@ def maybe_initialize_agent(agent_base: str, encoder_name: str):
 
 
 def improve(
+    game_name: str,
     num_workers: int,
     agent_name: str,
     encoder_name: str,
@@ -73,6 +74,7 @@ def improve(
             p = multiprocessing.Process(
                 target=selfPlay,
                 kwargs={
+                    'game_name': game_name,
                     'agent_filename': opponent_path,
                     'experience_filename': experience_filepath,
                     'num_games': games_per_worker,
@@ -101,6 +103,7 @@ def improve(
         )
 
         win_rate_agent_1 = evalAgent(
+            game_name=game_name,
             agent1_path=old_agent_path,
             agent2_path=new_agent_path,
             num_games=min(num_games_per_iteration, 10000),
@@ -149,8 +152,8 @@ def improve(
             if os.path.exists(new_agent_path):
                 os.remove(new_agent_path)
 
-        # If agent is not better after 5 iterations, model is either locally optimal or too heavily overfitted
-        if gen_iteration > 5:
+        # If agent is not better after 3 iterations, model is either locally optimal or too heavily overfitted
+        if gen_iteration > 3:
             break
 
 
@@ -161,9 +164,9 @@ if __name__ == "__main__":
         pass
 
     parser = argparse.ArgumentParser()
+    parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="ConnectFour")  # The game name, which should also be the encoder name of that game.
     parser.add_argument('--agent', type=str, default="newAgent")
     parser.add_argument('--num-workers', type=int, default=1)
-    parser.add_argument('--encoder-name', type=str, default="connectFour")
     parser.add_argument('--num-generations', type=int, default=100)
     parser.add_argument('--num-games-per-iteration', type=int, default=10000)
     parser.add_argument('--lr', type=float, default=0.0001)
@@ -178,9 +181,9 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', action="store_true")
     args = parser.parse_args()
 
+    game_name = args.game
     agent_name = args.agent
     num_workers = args.num_workers
-    encoder_name = args.encoder_name
     num_generations = args.num_generations
     num_games_per_iteration = args.num_games_per_iteration
     learning_rate = args.lr
@@ -205,14 +208,16 @@ if __name__ == "__main__":
         print("MPS not available, falling back to CPU.")
         device = 'cpu'
 
+    board_size_str = f"{board_size[0]}x{board_size[1]}"
+
     wandb.init(
-        project="AlphaConnectFour",
+        project=f"Alpha{game_name}",
         name=agent_name,
         config={
             "seed": seed,
             "num_workers": num_workers,
             "agent_name": agent_name,
-            "encoder": encoder_name,
+            "encoder": game_name,
             "learning_rate": learning_rate,
             "learning_rate_decay": learning_rate_decay,
             "ppo_epochs": ppo_epochs,
@@ -222,13 +227,15 @@ if __name__ == "__main__":
             "games_per_iteration": num_games_per_iteration,
             "board_size": board_size,
             "device": device,
-        }
+        },
+        tags=[board_size_str],
     )
 
     improve(
+        game_name=game_name,
         num_workers=num_workers,
         agent_name=agent_name,
-        encoder_name=encoder_name,
+        encoder_name=game_name,
         board_size=tuple(board_size),
         num_generations=num_generations,
         num_games_per_iteration=num_games_per_iteration,
@@ -236,6 +243,8 @@ if __name__ == "__main__":
         learning_rate_decay=learning_rate_decay,
         batch_size=batch_size,
         entropy_coef=entropy_coef,
+        ppo_epochs=ppo_epochs,
+        clip_epsilon=clip_epsilon,
         device=device,
         verbose=verbose,
     )

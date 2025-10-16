@@ -1,4 +1,4 @@
-from .DLCFtypes import Player, Point
+from DLCF.DLCFtypes import Player, Point
 
 __all__ = ['HASH_CODE', 'EMPTY_BOARD']
 

@@ -9,7 +9,8 @@ from DLCF.getGameState import GameStateTemplate
 BLACK_IDX = 0
 WHITE_IDX = 1
 
-FEATRE_OFFSETS = {
+# TODO: More features
+FEATURE_OFFSETS = {
     'black_pieces': 0,
     'white_pieces': 1,
     'black_winning_moves': 2,
@@ -18,14 +19,14 @@ FEATRE_OFFSETS = {
     'white_to_move': 5,
 }
 
-class ConnectFourEncoder(Encoder):
-    def __init__(self, board_size: Tuple[int, int]=(6, 7)):
+class GomokuEncoder(Encoder):
+    def __init__(self, board_size: Tuple[int, int]=(12, 12)):
         board_size = tuple(board_size)
         self.board_height, self.board_width = board_size
-        self.num_planes = len(FEATRE_OFFSETS.keys())
+        self.num_planes = len(FEATURE_OFFSETS.keys())
 
     def name(self):
-        return 'ConnectFour'
+        return 'Gomoku'
 
     def encode(self, game_state: GameStateTemplate):
         board_tensor = torch.zeros(self.shape())
@@ -36,9 +37,9 @@ class ConnectFourEncoder(Encoder):
         board_tensor[0:2] = pieces_planes
         board_tensor[2:4] = winning_moves_planes
         if game_state.next_player == Player.black:
-            board_tensor[FEATRE_OFFSETS['black_to_move']] = 1
+            board_tensor[FEATURE_OFFSETS['black_to_move']] = 1
         else:
-            board_tensor[FEATRE_OFFSETS['white_to_move']] = 1
+            board_tensor[FEATURE_OFFSETS['white_to_move']] = 1
 
         return board_tensor
 
@@ -92,5 +93,5 @@ class ConnectFourEncoder(Encoder):
     def zeros(self):
         return torch.zeros((1, self.board_height, self.board_width))
 
-def create(board_size=(6,7)):
-    return ConnectFourEncoder(board_size)
+def create(board_size=(12,12)):
+    return GomokuEncoder(board_size)

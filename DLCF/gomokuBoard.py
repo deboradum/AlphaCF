@@ -5,6 +5,9 @@ from typing import Dict, List
 from DLCF import zobrist
 from DLCF.DLCFtypes import Player, Point, Move, GameStateTemplate
 
+# Number of stones you should place in a row to win
+LENGTH_TO_WIN = 5
+
 
 class Board():
     def __init__(self, num_rows:int, num_cols:int):
@@ -18,9 +21,8 @@ class Board():
 
     def place_stone(self, player:Player, point:Point):
         assert 0 <= point.col < self.num_cols+1, "Column out of bounds"
-        assert not self.is_column_full(point.col), "Column is full"
-        if point.row < self.num_rows:
-            assert self._grid.get(Point(point.row+1, point.col)) is not None, "Illegal move, row below current point is not empty."
+        assert 0 <= point.row < self.num_rows+1, "Row out of bounds"
+        assert self._grid.get(point) is None, "Point is not empty"
 
         self._grid[point] = player
         self._hash ^= zobrist.HASH_CODE[point, player]
@@ -94,7 +96,7 @@ class GameState(GameStateTemplate):
         if winner is not None:
             return True
 
-        if len(self.legal_moves()) == 0:
+        if not self.legal_moves():
             return True
 
         return False
@@ -109,23 +111,15 @@ class GameState(GameStateTemplate):
             self.is_move_inside_grid(move)  # Grid point is inside grid
         )
 
-    def get_drop_point(self, column:int):
-        for r in range(self.board.num_rows, 0, -1):
-            point = Point(row=r, col=column)
-            if self.board._grid.get(point) is None:
-                return r
-
-        return None
-
     def legal_moves(self):
         moves: List[Move] = []
-        for col in range(1, self.board.num_cols + 1):
-            drop_row = self.get_drop_point(col)
-            if drop_row is None:
-                continue
-            move = Move.play(Point(drop_row, col))
-            if self.is_valid_move(move):
-                moves.append(move)
+        for col in range(1, self.board.num_cols+1):
+            for row in range(1, self.board.num_rows+1):
+                point = Point(row=row, col=col)
+                if self.board._grid.get(point) is None:
+                    move = Move.play(point)
+                    if self.is_valid_move(move):
+                        moves.append(move)
 
         return moves
 
@@ -165,9 +159,9 @@ class GameState(GameStateTemplate):
                     directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
 
                     for dr, dc in directions:
-                        # Check if a line of 4 exists starting from this point
+                        # Check if a line of <LENGTH_TO_WIN> exists starting from this point
                         is_a_win = True
-                        for i in range(1, 4):
+                        for i in range(1, LENGTH_TO_WIN):
                             next_point = Point(row=r + i * dr, col=c + i * dc)
                             if board.get(next_point) != player:
                                 is_a_win = False

@@ -1,20 +1,20 @@
 import torch
 import argparse
 
-from DLCF import rl
 from tqdm import tqdm
 from Model import Model
 from typing import Tuple
 from DLCF.rl import ACAgent
+from DLCF.DLCFtypes import Player
 from collections import namedtuple
-from DLCF.cfBoard import GameState, Player
+from DLCF.getGameState import getGameState
 
 class GameRecord(namedtuple('GameRecord', 'winner')):
     pass
 
-def simulate_game(black_player: ACAgent, white_player: ACAgent, board_size: Tuple[int, int], verbose:bool = False):
+def simulate_game(game_name: str, black_player: ACAgent, white_player: ACAgent, board_size: Tuple[int, int], verbose:bool = False):
     moves = []
-    game = GameState.new_game(board_size)
+    game = getGameState(game_name=game_name).new_game(board_size)
 
     agents = {
         Player.black: black_player,
@@ -35,9 +35,9 @@ def simulate_game(black_player: ACAgent, white_player: ACAgent, board_size: Tupl
     return GameRecord(winner=winner)
 
 
-def evalAgent(agent1_path: str, agent2_path: str, num_games: int, board_size: Tuple[int, int], device: str = "cpu", verbose:bool = False):
-    agent1 = rl.ACAgent.load(agent1_path, Model, device=device)
-    agent2 = rl.ACAgent.load(agent2_path, Model, device=device)
+def evalAgent(game_name: str, agent1_path: str, agent2_path: str, num_games: int, board_size: Tuple[int, int], device: str = "cpu", verbose:bool = False):
+    agent1 = ACAgent.load(agent1_path, Model, device=device)
+    agent2 = ACAgent.load(agent2_path, Model, device=device)
 
     wins = 0
     losses = 0
@@ -48,7 +48,7 @@ def evalAgent(agent1_path: str, agent2_path: str, num_games: int, board_size: Tu
         else:
             white_player, black_player = agent1, agent2
 
-        game_record = simulate_game(black_player, white_player, board_size, verbose=verbose)
+        game_record = simulate_game(game_name, black_player, white_player, board_size, verbose=verbose)
         if game_record.winner == color1:
             wins += 1
         else:
@@ -60,6 +60,7 @@ def evalAgent(agent1_path: str, agent2_path: str, num_games: int, board_size: Tu
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="ConnectFour")  # The game name, which should also be the encoder name of that game.
     parser.add_argument('--agent1', required=True)
     parser.add_argument('--agent2', required=True)
     parser.add_argument('--num-games', '-n', type=int, default=10)
@@ -69,10 +70,11 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    game_name = args.game
     agent1_path = args.agent1
     agent2_path = args.agent2
     num_games = args.num_games
     board_size = args.board_size
     device = args.device
 
-    evalAgent(agent1_path, agent2_path, num_games, board_size, device=device, verbose=args.verbose)
+    evalAgent(game_name, agent1_path, agent2_path, num_games, board_size, device=device, verbose=args.verbose)
