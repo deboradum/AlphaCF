@@ -174,7 +174,7 @@ if __name__ == "__main__":
     parser.add_argument('--bs', type=int, default=512)
     parser.add_argument('--entropy-coef', type=float, default=0.001)
     parser.add_argument('--ppo-epochs', type=int, default=3)
-    parser.add_argument('--clip-epsilon', type=float, default=0.02)
+    parser.add_argument('--clip-epsilon', type=float, default=0.2)
     parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
     parser.add_argument('--seed', type=int, default=123)
