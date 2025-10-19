@@ -1,6 +1,6 @@
 import torch
 
-from typing import Tuple
+from typing import Tuple, List
 
 from DLCF.DLCFtypes import Player, Point
 from DLCF.encoders.base import Encoder
@@ -28,20 +28,63 @@ class GomokuEncoder(Encoder):
     def name(self):
         return 'Gomoku'
 
-    def encode(self, game_state: GameStateTemplate):
-        board_tensor = torch.zeros(self.shape())
+    def encode(self, game_states: List[GameStateTemplate]):
+        batch_size = len(game_states)
 
-        pieces_planes = self.get_pieces_planes(game_state)
-        winning_moves_planes = self.get_winning_moves_planes(game_state)
+        board_tensors = torch.zeros(
+            (batch_size, self.num_planes, self.board_height, self.board_width),
+            dtype=torch.float32
+        )
 
-        board_tensor[0:2] = pieces_planes
-        board_tensor[2:4] = winning_moves_planes
-        if game_state.next_player == Player.black:
-            board_tensor[FEATURE_OFFSETS['black_to_move']] = 1
-        else:
-            board_tensor[FEATURE_OFFSETS['white_to_move']] = 1
+        # Piece indices
+        b_idx_black, r_idx_black, c_idx_black = [], [], []
+        b_idx_white, r_idx_white, c_idx_white = [], [], []
 
-        return board_tensor
+        # Winning move indices
+        b_idx_win_black, r_idx_win_black, c_idx_win_black = [], [], []
+        b_idx_win_white, r_idx_win_white, c_idx_win_white = [], [], []
+
+        for i, game_state in enumerate(game_states):
+            # --- A: Player to move ---
+            if game_state.next_player == Player.black:
+                board_tensors[i, FEATURE_OFFSETS['black_to_move']] = 1
+            else:
+                board_tensors[i, FEATURE_OFFSETS['white_to_move']] = 1
+
+            # --- B: Piece positions ---
+            for row in range(1, self.board_height + 1):
+                for col in range(1, self.board_width + 1):
+                    player = game_state.board.get(Point(row, col))
+                    if player == Player.black:
+                        b_idx_black.append(i)
+                        r_idx_black.append(row - 1)
+                        c_idx_black.append(col - 1)
+                    elif player == Player.white:
+                        b_idx_white.append(i)
+                        r_idx_white.append(row - 1)
+                        c_idx_white.append(col - 1)
+
+            # --- C: Winning moves ---
+            for m in game_state.legal_moves():
+                winner = game_state.apply_move(m).winner
+                if winner == Player.black:
+                    b_idx_win_black.append(i)
+                    r_idx_win_black.append(m.point.row - 1)
+                    c_idx_win_black.append(m.point.col - 1)
+                elif winner == Player.white:
+                    b_idx_win_white.append(i)
+                    r_idx_win_white.append(m.point.row - 1)
+                    c_idx_win_white.append(m.point.col - 1)
+
+        # Assign pieces
+        board_tensors[b_idx_black, FEATURE_OFFSETS['black_pieces'], r_idx_black, c_idx_black] = 1
+        board_tensors[b_idx_white, FEATURE_OFFSETS['white_pieces'], r_idx_white, c_idx_white] = 1
+
+        # Assign winning moves
+        board_tensors[b_idx_win_black, FEATURE_OFFSETS['black_winning_moves'], r_idx_win_black, c_idx_win_black] = 1
+        board_tensors[b_idx_win_white, FEATURE_OFFSETS['white_winning_moves'], r_idx_win_white, c_idx_win_white] = 1
+
+        return board_tensors
 
     def get_pieces_planes(self, game_state: GameStateTemplate):
         pieces_planes = torch.zeros(2, self.board_height, self.board_width)

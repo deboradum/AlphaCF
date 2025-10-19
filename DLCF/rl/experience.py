@@ -3,11 +3,12 @@ from typing import List
 
 class ExperienceCollector:
     def __init__(self):
-        self.states = []
-        self.actions = []
-        self.rewards = []
-        self.advantages = []
-        self.old_log_probs = []
+        self.states: List[torch.Tensor] = []
+        self.actions: List[torch.Tensor] = []
+        self.rewards: List[torch.Tensor] = []
+        self.advantages: List[torch.Tensor] = []
+        self.old_log_probs: List[torch.Tensor] = []
+
         self._current_episode_states = []
         self._current_episode_actions = []
         self._current_episode_estimated_values = []
@@ -28,6 +29,9 @@ class ExperienceCollector:
     def complete_episode(self, reward: float, gamma: float = 0.99, lambda_: float = 0.95):
         num_states = len(self._current_episode_states)
 
+        if num_states == 0:
+            return
+
         # GAE
         advantages = [0.0] * num_states
         value_targets = [0.0] * num_states
@@ -45,11 +49,11 @@ class ExperienceCollector:
 
             next_value = current_value
 
-        self.states.extend(self._current_episode_states)
-        self.actions.extend(self._current_episode_actions)
-        self.old_log_probs.extend(self._current_episode_log_probs)
-        self.advantages.extend(advantages)
-        self.rewards.extend(value_targets)
+        self.states.append(torch.stack(self._current_episode_states))
+        self.actions.append(torch.tensor(self._current_episode_actions, dtype=torch.long))
+        self.old_log_probs.append(torch.tensor(self._current_episode_log_probs, dtype=torch.float32))
+        self.advantages.append(torch.tensor(advantages, dtype=torch.float32))
+        self.rewards.append(torch.tensor(value_targets, dtype=torch.float32))
 
         self._current_episode_states = []
         self._current_episode_actions = []
@@ -57,12 +61,15 @@ class ExperienceCollector:
         self._current_episode_log_probs = []
 
     def to_buffer(self):
+        if not self.states:
+            raise ValueError("No experience collected to create a buffer.")
+
         return ExperienceBuffer(
-            states=torch.stack(self.states),
-            actions=torch.Tensor(self.actions, dtype=torch.long),
-            rewards=torch.Tensor(self.rewards, dtype=torch.float32),
-            advantages=torch.Tensor(self.advantages, dtype=torch.float32),
-            old_log_probs=torch.tensor(self.old_log_probs, dtype=torch.float32)
+            states=torch.cat(self.states, dim=0),
+            actions=torch.cat(self.actions, dim=0),
+            rewards=torch.cat(self.rewards, dim=0),
+            advantages=torch.cat(self.advantages, dim=0),
+            old_log_probs=torch.cat(self.old_log_probs, dim=0)
         )
 
 
@@ -94,17 +101,24 @@ class ExperienceBuffer:
             old_log_probs=data['old_log_probs'],
         )
 
-def combine_experience(collectors: List[ExperienceCollector]):
-    combined_states = [state for c in collectors for state in c.states]
-    combined_actions = [action for c in collectors for action in c.actions]
-    combined_rewards = [reward for c in collectors for reward in c.rewards]
-    combined_advantages = [advantage for c in collectors for advantage in c.advantages]
-    combined_old_log_probs = [log_prob for c in collectors for log_prob in c.old_log_probs]
+
+# collectors_lists is [ [c1_game1, c1_game2, ...], [c2_game1, c2_game2, ...] ]
+def combine_experience(collectors_lists: List[List[ExperienceCollector]]):
+    all_collectors = [c for c_list in collectors_lists for c in c_list]
+
+    all_states = [tensor for c in all_collectors for tensor in c.states]
+    all_actions = [tensor for c in all_collectors for tensor in c.actions]
+    all_rewards = [tensor for c in all_collectors for tensor in c.rewards]
+    all_advantages = [tensor for c in all_collectors for tensor in c.advantages]
+    all_old_log_probs = [tensor for c in all_collectors for tensor in c.old_log_probs]
+
+    if not all_states:
+        raise ValueError("No experience collected to combine.")
 
     return ExperienceBuffer(
-        states=torch.stack(combined_states),
-        actions=torch.tensor(combined_actions, dtype=torch.long),
-        rewards=torch.tensor(combined_rewards, dtype=torch.float32),
-        advantages=torch.tensor(combined_advantages, dtype=torch.float32),
-        old_log_probs=torch.tensor(combined_old_log_probs, dtype=torch.float32)
+        states=torch.cat(all_states, dim=0),
+        actions=torch.cat(all_actions, dim=0),
+        rewards=torch.cat(all_rewards, dim=0),
+        advantages=torch.cat(all_advantages, dim=0),
+        old_log_probs=torch.cat(all_old_log_probs, dim=0)
     )

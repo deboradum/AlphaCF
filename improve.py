@@ -3,7 +3,6 @@ import torch
 import wandb
 import random
 import argparse
-import multiprocessing
 
 from typing import Tuple
 from selfPlay import selfPlay
@@ -33,15 +32,15 @@ def maybe_initialize_agent(agent_base: str, encoder_name: str):
 
 def improve(
     game_name: str,
-    num_workers: int,
     agent_name: str,
     encoder_name: str,
     board_size: Tuple[int, int],
     num_generations: int,
     num_games_per_iteration: int,
+    play_batch_size: int,
     learning_rate: float,
     learning_rate_decay: float,
-    batch_size: int,
+    train_batch_size: int,
     entropy_coef: float,
     ppo_epochs: int,
     clip_epsilon: float,
@@ -64,38 +63,26 @@ def improve(
     while current_generation < num_generations:
         opponent_path = random.choice(last_agents)
 
-        processes = []
-        experience_files_this_iteration = []
-        games_per_worker = num_games_per_iteration // num_workers
-        for i in range(num_workers):
-            experience_filepath = f"{experience_base_path}/gen{current_generation}_{gen_iteration}_part{i}"
-            experience_files_this_iteration.append(experience_filepath)
+        experience_filepath = f"{experience_base_path}/gen{current_generation}_{gen_iteration}"
 
-            p = multiprocessing.Process(
-                target=selfPlay,
-                kwargs={
-                    'game_name': game_name,
-                    'agent_filename': opponent_path,
-                    'experience_filename': experience_filepath,
-                    'num_games': games_per_worker,
-                    'board_size': board_size,
-                    'device': "cpu",
-                    'worker_id': i
-                }
-            )
-            processes.append(p)
-            p.start()
-
-        for p in processes:
-            p.join()
+        selfPlay(
+            game_name=game_name,
+            agent_filename=opponent_path,
+            experience_filename=experience_filepath,
+            num_games=num_games_per_iteration,
+            board_size=board_size,
+            batch_size=play_batch_size,
+            device=device,
+            verbose=verbose,
+        )
 
         new_agent_path = f"{agent_base}/gen{current_generation + 1}"
         policy_loss, entropy_loss, value_loss, total_loss, grad_norm_before_clip, grad_norm_after_clip = trainAgent(
             learning_agent_filename=old_agent_path,
-            experience_files=experience_files_this_iteration,
+            experience_files=[experience_filepath],
             updated_agent_filename=new_agent_path,
             learning_rate=current_lr,
-            batch_size=batch_size,
+            batch_size=train_batch_size,
             entropy_coef=current_entropy_coef,
             ppo_epochs=ppo_epochs,
             clip_epsilon=clip_epsilon,
@@ -108,7 +95,8 @@ def improve(
             agent2_path=new_agent_path,
             num_games=min(num_games_per_iteration, 10000),
             board_size=board_size,
-            device="cpu",
+            batch_size=play_batch_size,
+            device=device,
             verbose=verbose,
         )
 
@@ -153,25 +141,20 @@ def improve(
                 os.remove(new_agent_path)
 
         # If agent is not better after 3 iterations, model is either locally optimal or too heavily overfitted
-        if gen_iteration > 3:
+        if gen_iteration > 25:
             break
 
 
 if __name__ == "__main__":
-    try:
-        multiprocessing.set_start_method('spawn')
-    except RuntimeError:
-        pass
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="ConnectFour")  # The game name, which should also be the encoder name of that game.
     parser.add_argument('--agent', type=str, default="newAgent")
-    parser.add_argument('--num-workers', type=int, default=1)
     parser.add_argument('--num-generations', type=int, default=100)
     parser.add_argument('--num-games-per-iteration', type=int, default=10000)
+    parser.add_argument('--play-bs', type=int, default=512)
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--lr-decay', type=float, default=0.99)
-    parser.add_argument('--bs', type=int, default=512)
+    parser.add_argument('--train-bs', type=int, default=512)
     parser.add_argument('--entropy-coef', type=float, default=0.001)
     parser.add_argument('--ppo-epochs', type=int, default=3)
     parser.add_argument('--clip-epsilon', type=float, default=0.2)
@@ -183,12 +166,12 @@ if __name__ == "__main__":
 
     game_name = args.game
     agent_name = args.agent
-    num_workers = args.num_workers
     num_generations = args.num_generations
     num_games_per_iteration = args.num_games_per_iteration
     learning_rate = args.lr
     learning_rate_decay = args.lr_decay
-    batch_size = args.bs
+    play_batch_size = args.play_bs
+    train_batch_size = args.train_bs
     entropy_coef = args.entropy_coef
     ppo_epochs = args.ppo_epochs
     clip_epsilon = args.clip_epsilon
@@ -215,16 +198,16 @@ if __name__ == "__main__":
         name=agent_name,
         config={
             "seed": seed,
-            "num_workers": num_workers,
             "agent_name": agent_name,
             "encoder": game_name,
             "learning_rate": learning_rate,
             "learning_rate_decay": learning_rate_decay,
             "ppo_epochs": ppo_epochs,
             "clip_epsilon": clip_epsilon,
-            "batch_size": batch_size,
+            "train_batch_size": train_batch_size,
             "generations": num_generations,
             "games_per_iteration": num_games_per_iteration,
+            "play_batch_size": play_batch_size,
             "board_size": board_size,
             "device": device,
         },
@@ -233,15 +216,15 @@ if __name__ == "__main__":
 
     improve(
         game_name=game_name,
-        num_workers=num_workers,
         agent_name=agent_name,
         encoder_name=game_name,
         board_size=tuple(board_size),
         num_generations=num_generations,
         num_games_per_iteration=num_games_per_iteration,
+        play_batch_size=play_batch_size,
         learning_rate=learning_rate,
         learning_rate_decay=learning_rate_decay,
-        batch_size=batch_size,
+        train_batch_size=train_batch_size,
         entropy_coef=entropy_coef,
         ppo_epochs=ppo_epochs,
         clip_epsilon=clip_epsilon,

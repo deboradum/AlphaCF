@@ -2,115 +2,96 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
+from typing import List
 from torch.optim import Adam
 from torch.utils.data import TensorDataset, DataLoader
 
+from Model import Model
 from DLCF.agent import Agent
-from DLCF.DLCFtypes import Player, Point, Move
+from DLCF.DLCFtypes import Move
 from DLCF.encoders import Encoder, get_encoder_by_name
 from DLCF.getGameState import GameStateTemplate
 from DLCF.rl.experience import ExperienceBuffer, ExperienceCollector
 
 class ACAgent(Agent):
-    def __init__(self, model: Agent, encoder: Encoder, device: str = "cpu"):
-        self._model: Agent = model
+    def __init__(self, model: Model, encoder: Encoder, device: str = "cpu"):
+        self._model = model
         self._encoder = encoder
-        self._collector = None
+        self._collectors = None
         self.device = device
 
         self.optimizer = None
 
-    def set_collector(self, collector: ExperienceCollector):
-        self._collector = collector
+    def set_collectors(self, collectors: List[ExperienceCollector]):
+        self._collectors = collectors
 
-    def gamestate_value(self, game_state: GameStateTemplate):
-        X = self._encoder.encode(game_state)
-        _, values = self._model(X.unsqueeze(0).to(self.device))
-        estimated_value = values.item()
-
-        return estimated_value
-
-    def debug_move(self, game_state: GameStateTemplate, move_probs: torch.Tensor, point_idx: int):
-        print("\n--- DEBUG MOVE ---")
-
-        # Reshape probabilities to match the board dimensions for easier reading
-        board_probs = move_probs.detach().numpy().reshape(
-            (self._encoder.board_height, self._encoder.board_width)
-        )
-
-        print("Policy Network Move Probabilities:")
-        print("Black: 'X', White: 'O'")
-        print('Black (X)' if game_state.next_player == Player.black else 'White (O)', "to play")
-        # Print formatted probabilities for each column
-        for row_idx in range(self._encoder.board_height):
-            row_items = []
-            for col_idx in range(self._encoder.board_width):
-                # Point objects are 1-indexed in cfBoard
-                point = Point(row=row_idx + 1, col=col_idx + 1)
-                player = game_state.board.get(point)
-
-                if player is not None:
-                    # If a stone is on the board, show X or O
-                    stone = '  X  ' if player == Player.black else '  O  '
-                    row_items.append(stone)
-                else:
-                    # Otherwise, show the move probability
-                    prob = board_probs[row_idx, col_idx]
-                    row_items.append(f"{prob:.3f}")
-
-            print(f"| {' | '.join(row_items)} |")
-
-        selected_point = self._encoder.decode_point_index(point_idx)
-        selected_prob = move_probs[point_idx].item()
-
-        print(f"\nSelected Move: Play in column {selected_point.col}")
-        print(f"Probability of Selected Move: {selected_prob:.4f}")
-        print("------------------\n")
-
-    def sample_move(self, game_state: GameStateTemplate):
+    def sample_moves(self, game_states: List[GameStateTemplate]):
         num_moves = self._encoder.board_width * self._encoder.board_height
+        batch_size = len(game_states)
 
-        X = self._encoder.encode(game_state)
+        Xs = self._encoder.encode(game_states).to(self.device)  # (B, C, H, W)
 
-        policy_logits, values = self._model(X.unsqueeze(0).to(self.device))
-        estimated_value = values.item()
+        policy_logits, values = self._model(Xs)  # (B, num_moves) and (B, 1)
+        estimated_values = values.squeeze(-1) # (B,)
 
-        valid_move_mask = torch.zeros(num_moves, dtype=torch.bool, device=self.device)
-        for move in game_state.legal_moves():
-            # Convert each valid Move object back to its corresponding index
-            move_idx = self._encoder.encode_point(move.point)
-            valid_move_mask[move_idx] = True
+        valid_move_mask = torch.zeros(
+            batch_size,
+            num_moves,
+            dtype=torch.bool,
+            device=self.device
+        )
+        batch_indices = []
+        move_indices = []
+        for i, game_state in enumerate(game_states):
+            for move in game_state.legal_moves():
+                move_idx = self._encoder.encode_point(move.point)
+                batch_indices.append(i)
+                move_indices.append(move_idx)
 
-        masked_logits = policy_logits.squeeze(0).clone()
+        if batch_indices:
+            valid_move_mask[batch_indices, move_indices] = True
+
+        # Prevent 0 probability for games where no valid moves exist
+        is_game_over = ~valid_move_mask.any(dim=1)
+        if is_game_over.any():
+            valid_move_mask[is_game_over, 0] = True
+
+        masked_logits = policy_logits.clone()
         masked_logits[~valid_move_mask] = float('-inf')
 
-        move_probs = nn.functional.softmax(masked_logits, dim=-1)
+        move_probs = nn.functional.softmax(masked_logits, dim=-1)  # (B, num_moves)
 
-        dist = torch.distributions.Categorical(move_probs)
-        action_tensor = dist.sample()
-        point_idx = action_tensor.item()
-        log_prob = dist.log_prob(action_tensor)
+        dist = torch.distributions.Categorical(probs=move_probs)
+        action_tensors = dist.sample()  # (B,)
+        log_probs = dist.log_prob(action_tensors)  # (B,)
 
-        debug = False
-        if debug:
-            self.debug_move(game_state, move_probs, point_idx)
+        return Xs, action_tensors, estimated_values, log_probs
 
-        return X, point_idx, estimated_value, log_prob.item()
+    def select_moves(self, game_states: List[GameStateTemplate]) -> List[Move]:
+        bs = len(game_states)
 
-    def select_move(self, game_state: GameStateTemplate):
-        X, point_idx, estimated_value, log_prob = self.sample_move(game_state)
+        Xs, action_tensors, estimated_values, log_probs = self.sample_moves(game_states)
 
-        if self._collector is not None:
-            self._collector.record_decision(
-                state=X,
-                action=point_idx,
-                log_prob=log_prob,
-                estimated_value=estimated_value,
-            )
+        if self._collectors is not None:
+            action_indices = action_tensors.tolist()
+            log_prob_list = log_probs.tolist()
+            value_list = estimated_values.tolist()
 
-        point = self._encoder.decode_point_index(point_idx)
+            for i in range(bs):
+                self._collectors[i].record_decision(
+                    state=Xs[i],
+                    action=action_indices[i],
+                    log_prob=log_prob_list[i],
+                    estimated_value=value_list[i],
+                )
 
-        return Move.play(point)
+        point_indices = action_tensors.tolist()
+        moves = [
+            Move.play(self._encoder.decode_point_index(idx))
+            for idx in point_indices
+        ]
+
+        return moves
 
     def train(self, experience: ExperienceBuffer, lr:float=0.0001, batch_size:int=128, entropy_coef: float = 0.001, ppo_epochs: int = 3, clip_epsilon: float = 0.2):
         self._model.train()
