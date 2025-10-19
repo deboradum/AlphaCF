@@ -88,7 +88,7 @@ class Model(nn.Module):
         x = self.initial_block(encoded_board)
         x = self.res_blocks(x)
 
-        x = self.self.bn(x)
+        x = self.bn(x)
         x = self.relu(x)
 
         policy_ouput = self.policy(x)
