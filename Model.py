@@ -9,7 +9,7 @@ class ResidualBlock(nn.Module):
             in_channels=num_channels,
             out_channels=num_channels,
             kernel_size=(3, 3),
-            padding='same'
+            padding='same',
         )
         self.bn1 = nn.BatchNorm2d(num_channels)
         self.relu = nn.ReLU()
@@ -17,7 +17,7 @@ class ResidualBlock(nn.Module):
             in_channels=num_channels,
             out_channels=num_channels,
             kernel_size=(3, 3),
-            padding='same'
+            padding='same',
         )
         self.bn2 = nn.BatchNorm2d(num_channels)
 
@@ -31,7 +31,7 @@ class ResidualBlock(nn.Module):
         out = self.conv2(out)
         out = self.bn2(out)
 
-        out += residual  # The skip connection
+        out += residual
         out = self.relu(out)
 
         return out
@@ -40,10 +40,13 @@ class Model(nn.Module):
     def __init__(self, encoder: Encoder):
         super(Model, self).__init__()
 
-        self.num_res_blocks = 2
-        self.num_channels = 64
-        self.hidden_size = 512
+        self.num_res_blocks = 16
+        self.num_channels = 256
+        self.hidden_size = 256
         self.in_dim = encoder.num_planes
+
+        self.bn = nn.BatchNorm2d(self.num_channels)
+        self.relu = nn.ReLU()
 
         flatten_size = 64 * encoder.board_height * encoder.board_width
 
@@ -84,6 +87,9 @@ class Model(nn.Module):
     def forward(self, encoded_board):
         x = self.initial_block(encoded_board)
         x = self.res_blocks(x)
+
+        x = self.self.bn(x)
+        x = self.relu(x)
 
         policy_ouput = self.policy(x)
         value_output = self.value(x)
