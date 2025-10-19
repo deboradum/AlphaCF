@@ -40,8 +40,8 @@ class Model(nn.Module):
     def __init__(self, encoder: Encoder):
         super(Model, self).__init__()
 
-        self.num_res_blocks = 16
-        self.num_channels = 256
+        self.num_res_blocks = 12
+        self.num_channels = 128
         self.hidden_size = 256
         self.in_dim = encoder.num_planes
 
