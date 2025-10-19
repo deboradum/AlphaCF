@@ -1,4 +1,6 @@
 import importlib
+from typing import List
+from DLCF.getGameState import GameStateTemplate
 
 __all__ = [
     'Encoder',
@@ -9,7 +11,7 @@ class Encoder:
     def name(self):
         raise NotImplementedError()
 
-    def encode(self, game_state):
+    def encode(self, game_states: List[GameStateTemplate]):
         raise NotImplementedError()
 
     def encode_point(self, point):
