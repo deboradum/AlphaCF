@@ -59,6 +59,12 @@ class Board():
 
         print(' '.join(str(c) for c in range(1, self.num_cols + 1)))
 
+    def copy(self):
+        new_board = Board(self.num_rows, self.num_cols)
+        new_board._grid = self._grid.copy()
+        new_board._hash = self._hash
+
+        return new_board
 
 class GameState(GameStateTemplate):
     def __init__(self, board: Board, next_player: Player, previous: "GameState", move: Move):
@@ -77,7 +83,7 @@ class GameState(GameStateTemplate):
 
     def apply_move(self, move:Move):
         if move.is_play:
-            next_board = copy.deepcopy(self.board)
+            next_board = self.board.copy()
             next_board.place_stone(self.next_player, move.point)
         else:
             next_board = self.board
