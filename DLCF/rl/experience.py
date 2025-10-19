@@ -92,7 +92,7 @@ class ExperienceBuffer:
 
     @classmethod
     def load(cls, path: str):
-        data = torch.load(path)
+        data = torch.load(path, weights_only=True)
         return cls(
             states=data['states'],
             actions=data['actions'],
