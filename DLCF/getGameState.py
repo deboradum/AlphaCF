@@ -1,5 +1,5 @@
 from DLCF.DLCFtypes import GameStateTemplate
-from DLCF.cfBoard import GameState as connectFourGameState
+from DLCF.connectFourBoard import GameState as connectFourGameState
 from DLCF.gomokuBoard import GameState as gomokuGameState
 
 

@@ -1,3 +1,4 @@
+import time
 import torch
 import argparse
 from DLCF import rl
@@ -28,8 +29,12 @@ def simulate_games(game_name: str, black_player: ACAgent, white_player: ACAgent,
     with torch.no_grad():
         while not num_done == batch_size:
             next_moves = agents[turn_idx].select_moves(games)
-            num_done = sum([1 if g.is_over() else 0 for g in games])
-            games = [g.apply_move(m) if not g.is_over() else g for g, m in zip(games, next_moves)]
+            game_is_over = [g.is_over() for g in games]
+            num_done = sum(game_is_over)
+            games = [
+                g.apply_move(m) if not is_over else g
+                for g, m, is_over in zip(games, next_moves, game_is_over)
+            ]
             turn_idx = (turn_idx + 1) % 2
 
     winners = [game.compute_game_result() for game in games]
@@ -59,7 +64,7 @@ def selfPlay(game_name: str, agent_filename: str, experience_filename: str, num_
     agent1.set_collectors(collectors1)
     agent2.set_collectors(collectors2)
 
-    for _ in tqdm(range(num_batched_simualtions), desc=f"Generating batched experience"):
+    for _ in tqdm(range(num_batched_simualtions), desc=f"Generating experience"):
         for i in range(batch_size):
             collectors1[i].begin_episode()
             collectors2[i].begin_episode()

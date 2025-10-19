@@ -1,5 +1,4 @@
 import torch
-
 from typing import Tuple, List
 
 from DLCF.DLCFtypes import Player, Point
@@ -9,14 +8,19 @@ from DLCF.getGameState import GameStateTemplate
 BLACK_IDX = 0
 WHITE_IDX = 1
 
-# TODO: More features
 FEATURE_OFFSETS = {
-    'black_pieces': 0,
-    'white_pieces': 1,
-    'black_winning_moves': 2,
-    'white_winning_moves': 3,
-    'black_to_move': 4,
-    'white_to_move': 5,
+    # Current board state
+    'black_pieces_t0': 0,
+    'white_pieces_t0': 1,
+
+    # Previous board state
+    'black_pieces_t1': 2,
+    'white_pieces_t1': 3,
+
+    # Other features
+    'legal_moves': 4,
+    'black_to_move': 5,
+    'white_to_move': 6,
 }
 
 class GomokuEncoder(Encoder):
@@ -36,53 +40,68 @@ class GomokuEncoder(Encoder):
             dtype=torch.float32
         )
 
-        # Piece indices
-        b_idx_black, r_idx_black, c_idx_black = [], [], []
-        b_idx_white, r_idx_white, c_idx_white = [], [], []
+        # Piece indices (t=0)
+        b_idx_black_t0, r_idx_black_t0, c_idx_black_t0 = [], [], []
+        b_idx_white_t0, r_idx_white_t0, c_idx_white_t0 = [], [], []
 
-        # Winning move indices
-        b_idx_win_black, r_idx_win_black, c_idx_win_black = [], [], []
-        b_idx_win_white, r_idx_win_white, c_idx_win_white = [], [], []
+        # Piece indices (t-1)
+        b_idx_black_t1, r_idx_black_t1, c_idx_black_t1 = [], [], []
+        b_idx_white_t1, r_idx_white_t1, c_idx_white_t1 = [], [], []
+
+        # Legal move indices
+        b_idx_legal, r_idx_legal, c_idx_legal = [], [], []
 
         for i, game_state in enumerate(game_states):
-            # --- A: Player to move ---
+            # Player to move
             if game_state.next_player == Player.black:
                 board_tensors[i, FEATURE_OFFSETS['black_to_move']] = 1
             else:
                 board_tensors[i, FEATURE_OFFSETS['white_to_move']] = 1
 
-            # --- B: Piece positions ---
+            # Legal Moves
+            for m in game_state.legal_moves():
+                b_idx_legal.append(i)
+                r_idx_legal.append(m.point.row - 1)
+                c_idx_legal.append(m.point.col - 1)
+
+            # Current piece positions
             for row in range(1, self.board_height + 1):
                 for col in range(1, self.board_width + 1):
                     player = game_state.board.get(Point(row, col))
                     if player == Player.black:
-                        b_idx_black.append(i)
-                        r_idx_black.append(row - 1)
-                        c_idx_black.append(col - 1)
+                        b_idx_black_t0.append(i)
+                        r_idx_black_t0.append(row - 1)
+                        c_idx_black_t0.append(col - 1)
                     elif player == Player.white:
-                        b_idx_white.append(i)
-                        r_idx_white.append(row - 1)
-                        c_idx_white.append(col - 1)
+                        b_idx_white_t0.append(i)
+                        r_idx_white_t0.append(row - 1)
+                        c_idx_white_t0.append(col - 1)
 
-            # --- C: Winning moves ---
-            for m in game_state.legal_moves():
-                winner = game_state.apply_move(m).winner
-                if winner == Player.black:
-                    b_idx_win_black.append(i)
-                    r_idx_win_black.append(m.point.row - 1)
-                    c_idx_win_black.append(m.point.col - 1)
-                elif winner == Player.white:
-                    b_idx_win_white.append(i)
-                    r_idx_win_white.append(m.point.row - 1)
-                    c_idx_win_white.append(m.point.col - 1)
+            # Previous piece positions
+            previous_state = getattr(game_state, 'previous_state', None)
+            if previous_state:
+                for row in range(1, self.board_height + 1):
+                    for col in range(1, self.board_width + 1):
+                        player = previous_state.board.get(Point(row, col))
+                        if player == Player.black:
+                            b_idx_black_t1.append(i)
+                            r_idx_black_t1.append(row - 1)
+                            c_idx_black_t1.append(col - 1)
+                        elif player == Player.white:
+                            b_idx_white_t1.append(i)
+                            r_idx_white_t1.append(row - 1)
+                            c_idx_white_t1.append(col - 1)
 
-        # Assign pieces
-        board_tensors[b_idx_black, FEATURE_OFFSETS['black_pieces'], r_idx_black, c_idx_black] = 1
-        board_tensors[b_idx_white, FEATURE_OFFSETS['white_pieces'], r_idx_white, c_idx_white] = 1
+        # Assign current pieces
+        board_tensors[b_idx_black_t0, FEATURE_OFFSETS['black_pieces_t0'], r_idx_black_t0, c_idx_black_t0] = 1
+        board_tensors[b_idx_white_t0, FEATURE_OFFSETS['white_pieces_t0'], r_idx_white_t0, c_idx_white_t0] = 1
 
-        # Assign winning moves
-        board_tensors[b_idx_win_black, FEATURE_OFFSETS['black_winning_moves'], r_idx_win_black, c_idx_win_black] = 1
-        board_tensors[b_idx_win_white, FEATURE_OFFSETS['white_winning_moves'], r_idx_win_white, c_idx_win_white] = 1
+        # Assign previous pieces
+        board_tensors[b_idx_black_t1, FEATURE_OFFSETS['black_pieces_t1'], r_idx_black_t1, c_idx_black_t1] = 1
+        board_tensors[b_idx_white_t1, FEATURE_OFFSETS['white_pieces_t1'], r_idx_white_t1, c_idx_white_t1] = 1
+
+        # legal moves
+        board_tensors[b_idx_legal, FEATURE_OFFSETS['legal_moves'], r_idx_legal, c_idx_legal] = 1
 
         return board_tensors
 
@@ -100,21 +119,6 @@ class GomokuEncoder(Encoder):
                     pieces_planes[BLACK_IDX][row-1][col-1] = 1
 
         return pieces_planes
-
-    def get_winning_moves_planes(self, game_state: GameStateTemplate):
-        winning_moves_planes = torch.zeros(2, self.board_height, self.board_width)
-        for m in game_state.legal_moves():
-            winner = game_state.apply_move(m).winner
-            if winner is None:
-                continue
-            # Winning move for white
-            elif winner == Player.white:
-                winning_moves_planes[WHITE_IDX][m.point.row-1][m.point.col-1] = 1
-            # Winning move for black
-            elif winner == Player.black:
-                winning_moves_planes[BLACK_IDX][m.point.row-1][m.point.col-1] = 1
-
-        return winning_moves_planes
 
     def encode_point(self, point: Point):
         return self.board_width * (point.row - 1) + (point.col - 1)

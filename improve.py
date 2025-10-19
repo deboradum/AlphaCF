@@ -141,7 +141,7 @@ def improve(
                 os.remove(new_agent_path)
 
         # If agent is not better after 3 iterations, model is either locally optimal or too heavily overfitted
-        if gen_iteration > 25:
+        if gen_iteration > 4:
             break
 
 
