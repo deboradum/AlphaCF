@@ -38,6 +38,7 @@ class ExperienceCollector:
 
         self.states.append(torch.stack(self._current_episode_states))
         self.actions.append(torch.tensor(self._current_episode_actions, dtype=torch.long))
+        self.old_log_probs.append(torch.tensor(self._current_episode_log_probs, dtype=torch.float32))
         self.advantages.append(torch.tensor(episode_advantages, dtype=torch.float32))
         self.rewards.append(torch.tensor(episode_rewards, dtype=torch.float32))
 
