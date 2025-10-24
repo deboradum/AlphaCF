@@ -28,18 +28,23 @@ class ExperienceCollector:
 
     def complete_episode(self, reward: float, gamma: float = 0.99, lambda_: float = 0.95):
         num_states = len(self._current_episode_states)
-        self.states += self._current_episode_states
-        self.actions += self._current_episode_actions
-        self.rewards += [reward for _ in range(num_states)]
 
+        episode_advantages = []
+        episode_rewards = []
         for i in range(num_states):
-            advantage = reward - \
-                self._current_episode_estimated_values[i]
-            self.advantages.append(advantage)
+            advantage = reward - self._current_episode_estimated_values[i]
+            episode_advantages.append(advantage)
+            episode_rewards.append(float(reward))
+
+        self.states.append(torch.stack(self._current_episode_states))
+        self.actions.append(torch.tensor(self._current_episode_actions, dtype=torch.long))
+        self.advantages.append(torch.tensor(episode_advantages, dtype=torch.float32))
+        self.rewards.append(torch.tensor(episode_rewards, dtype=torch.float32))
 
         self._current_episode_states = []
         self._current_episode_actions = []
         self._current_episode_estimated_values = []
+        self._current_episode_log_probs = []
 
     # def complete_episode(self, reward: float, gamma: float = 0.99, lambda_: float = 0.95):
     #     num_states = len(self._current_episode_states)
