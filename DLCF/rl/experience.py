@@ -28,37 +28,52 @@ class ExperienceCollector:
 
     def complete_episode(self, reward: float, gamma: float = 0.99, lambda_: float = 0.95):
         num_states = len(self._current_episode_states)
+        self.states += self._current_episode_states
+        self.actions += self._current_episode_actions
+        self.rewards += [reward for _ in range(num_states)]
 
-        if num_states == 0:
-            return
-
-        # GAE
-        advantages = [0.0] * num_states
-        value_targets = [0.0] * num_states
-        gae = 0.0
-        next_value = float(reward)
-        for i in reversed(range(num_states)):
-            reward_at_step = 0 if i < num_states - 1 else reward
-            current_value = self._current_episode_estimated_values[i]
-            value_targets[i] = reward_at_step + gamma * next_value
-
-            # δ_t = r_t + γV(s_{t+1}) - V(s_t)
-            delta = reward_at_step + gamma * next_value - current_value
-            gae = delta + gamma * lambda_ * gae
-            advantages[i] = gae
-
-            next_value = current_value
-
-        self.states.append(torch.stack(self._current_episode_states))
-        self.actions.append(torch.tensor(self._current_episode_actions, dtype=torch.long))
-        self.old_log_probs.append(torch.tensor(self._current_episode_log_probs, dtype=torch.float32))
-        self.advantages.append(torch.tensor(advantages, dtype=torch.float32))
-        self.rewards.append(torch.tensor(value_targets, dtype=torch.float32))
+        for i in range(num_states):
+            advantage = reward - \
+                self._current_episode_estimated_values[i]
+            self.advantages.append(advantage)
 
         self._current_episode_states = []
         self._current_episode_actions = []
         self._current_episode_estimated_values = []
-        self._current_episode_log_probs = []
+
+    # def complete_episode(self, reward: float, gamma: float = 0.99, lambda_: float = 0.95):
+    #     num_states = len(self._current_episode_states)
+
+    #     if num_states == 0:
+    #         return
+
+    #     # GAE
+    #     advantages = [0.0] * num_states
+    #     value_targets = [0.0] * num_states
+    #     gae = 0.0
+    #     next_value = float(reward)
+    #     for i in reversed(range(num_states)):
+    #         reward_at_step = 0 if i < num_states - 1 else reward
+    #         current_value = self._current_episode_estimated_values[i]
+    #         value_targets[i] = reward_at_step + gamma * next_value
+
+    #         # δ_t = r_t + γV(s_{t+1}) - V(s_t)
+    #         delta = reward_at_step + gamma * next_value - current_value
+    #         gae = delta + gamma * lambda_ * gae
+    #         advantages[i] = gae
+
+    #         next_value = current_value
+
+    #     self.states.append(torch.stack(self._current_episode_states))
+    #     self.actions.append(torch.tensor(self._current_episode_actions, dtype=torch.long))
+    #     self.old_log_probs.append(torch.tensor(self._current_episode_log_probs, dtype=torch.float32))
+    #     self.advantages.append(torch.tensor(advantages, dtype=torch.float32))
+    #     self.rewards.append(torch.tensor(value_targets, dtype=torch.float32))
+
+    #     self._current_episode_states = []
+    #     self._current_episode_actions = []
+    #     self._current_episode_estimated_values = []
+    #     self._current_episode_log_probs = []
 
     def to_buffer(self):
         if not self.states:
