@@ -65,16 +65,11 @@ class ExperienceCollector:
             # δ_t = r_t + γV(s_{t+1}) - V(s_t)
             delta = reward_at_step + gamma * next_value - current_value
             gae = delta + gamma * lambda_ * gae
-            advantages[i] = gae
 
-            # Old
-            # value_targets[i] = reward_at_step + gamma * next_value
-            # V_target_t = A_t + V(s_t)
-            # value_targets[i] = gae + current_value
+            advantages[i] = gae
+            value_targets[i] = gae + current_value
 
             next_value = current_value
-
-        value_targets = [float(reward)] * num_states
 
         self.states.append(torch.stack(self._current_episode_states))
         self.actions.append(torch.tensor(self._current_episode_actions, dtype=torch.long))
