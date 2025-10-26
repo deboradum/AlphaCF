@@ -61,7 +61,7 @@ def improve(
     current_entropy_coef = entropy_coef
 
     while current_generation < num_generations:
-        opponent_path = random.choice(last_agents)
+        opponent_path = old_agent_path
 
         experience_filepath = f"{experience_base_path}/gen{current_generation}_{gen_iteration}"
 
@@ -142,6 +142,8 @@ def improve(
 
         # If agent is not better after 3 iterations, model is either locally optimal or too heavily overfitted
         if gen_iteration > 4:
+            for exp_file in os.listdir(experience_base_path):
+                os.remove(os.path.join(experience_base_path, exp_file))
             break
 
 
