@@ -107,6 +107,7 @@ class ACAgent(Agent):
             experience.advantages,
             experience.rewards,
             experience.old_log_probs,
+            experience.masks,
         )
         data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
