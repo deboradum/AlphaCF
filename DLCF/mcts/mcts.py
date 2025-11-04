@@ -22,29 +22,6 @@ class MCTSNode(object):
         self.children = []
         self.prob = prob
 
-    def add_random_child(self, ac_agent: ACAgent):
-        move_probs, Xs, action_tensors, estimated_values, log_probs = ac_agent.sample_moves(self.game_state, return_probs=True)
-        move_probs.squeeze_(0)
-
-        move_probs_list = move_probs.tolist()
-
-        # TODO: Verify this is correct.
-        new_node = None
-        highest_prob = -1
-        point_indices = action_tensors.tolist()
-        for i, idx in enumerate(point_indices):
-            new_move = self.univisted_moves.pop(idx)
-            new_game_state = self.game_state.apply_move(new_move)
-            prob = move_probs_list[i]
-            curr_child_node = MCTSNode(new_game_state, prob, self, new_move)
-            self.children.append(new_node)
-            # Return node with highest action prob.
-            if prob > highest_prob:
-                highest_prob = prob
-                new_node = curr_child_node
-
-        return new_node
-
     def backpropagate(self, value: float):
         self.total_value += value
         self.num_rollouts += 1
