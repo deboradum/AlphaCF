@@ -65,12 +65,12 @@ class ACAgent(Agent):
         action_tensors = dist.sample()  # (B,)
         log_probs = dist.log_prob(action_tensors)  # (B,)
 
-        return Xs, action_tensors, estimated_values, log_probs
+        return Xs, action_tensors, estimated_values, log_probs, valid_move_mask
 
     def select_moves(self, game_states: List[GameStateTemplate]) -> List[Move]:
         bs = len(game_states)
 
-        Xs, action_tensors, estimated_values, log_probs = self.sample_moves(game_states)
+        Xs, action_tensors, estimated_values, log_probs, valid_move_mask = self.sample_moves(game_states)
 
         if self._collectors is not None:
             action_indices = action_tensors.tolist()
@@ -83,6 +83,7 @@ class ACAgent(Agent):
                     action=action_indices[i],
                     log_prob=log_prob_list[i],
                     estimated_value=value_list[i],
+                    mask=valid_move_mask[i]
                 )
 
         point_indices = action_tensors.tolist()
@@ -140,6 +141,7 @@ class ACAgent(Agent):
             experience.advantages,
             experience.rewards,
             experience.old_log_probs,
+            experience.masks,
         )
         data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
@@ -153,12 +155,13 @@ class ACAgent(Agent):
         num_batches = 0
 
         for _ in tqdm(range(ppo_epochs), desc="Training agent"):
-            for states_batch, actions_batch, advantages_batch, value_target_batch, old_log_probs_batch in data_loader:
+            for states_batch, actions_batch, advantages_batch, value_target_batch, old_log_probs_batch, masks_batch in data_loader:
                 states_batch = states_batch.to(self.device)
                 actions_batch = actions_batch.to(self.device)
                 advantages_batch = advantages_batch.to(self.device)
                 value_target_batch = value_target_batch.to(self.device).view(-1, 1)
                 old_log_probs_batch = old_log_probs_batch.to(self.device)
+                masks_batch = masks_batch.to(self.device)
 
                 # Normalize advantages for better
                 std = advantages_batch.std()
@@ -171,7 +174,15 @@ class ACAgent(Agent):
 
                 policy_logits, value_pred = self._model(states_batch)
 
-                dist = torch.distributions.Categorical(logits=policy_logits)
+                # Mask illegal moves
+                is_game_over = ~masks_batch.any(dim=1)
+                if is_game_over.any():
+                    masks_batch[is_game_over, 0] = True
+                masked_logits = policy_logits.clone()
+                masked_logits[~masks_batch] = float('-inf')
+
+                dist = torch.distributions.Categorical(logits=masked_logits)
+
                 new_log_probs = dist.log_prob(actions_batch)
 
                 ratio = torch.exp(new_log_probs - old_log_probs_batch)
