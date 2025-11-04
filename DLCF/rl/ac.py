@@ -93,6 +93,40 @@ class ACAgent(Agent):
 
         return moves
 
+    def predict_policy_and_value(self, game_state: GameStateTemplate) -> float:
+        Xs = self._encoder.encode([game_state]).to(self.device)  # (1, C, H, W)
+
+        policy_logits, values = self._model(Xs)  # (1, num_moves) and (1, 1)
+        estimated_value = values.squeeze(-1) # (1,)
+        num_moves = self._encoder.board_width * self._encoder.board_height
+        valid_move_mask = torch.zeros(
+            1,
+            num_moves,
+            dtype=torch.bool,
+            device=self.device
+        )
+        batch_indices = []
+        move_indices = []
+        for move in game_state.legal_moves():
+            move_idx = self._encoder.encode_point(move.point)
+            move_indices.append(move_idx)
+
+        if batch_indices:
+            valid_move_mask[batch_indices, move_indices] = True
+
+        # Prevent 0 probability for games where no valid moves exist
+        is_game_over = ~valid_move_mask.any(dim=1)
+        if is_game_over.any():
+            valid_move_mask[is_game_over, 0] = True
+
+        masked_logits = policy_logits.clone()
+        masked_logits[~valid_move_mask] = float('-inf')
+
+        move_probs = nn.functional.softmax(masked_logits, dim=-1)  # (B, num_moves)
+
+        return move_probs, estimated_value
+
+
     def train(self, experience: ExperienceBuffer, lr:float=0.0001, batch_size:int=128, entropy_coef: float = 0.001, ppo_epochs: int = 3, clip_epsilon: float = 0.2):
         self._model.train()
 
