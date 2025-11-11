@@ -94,7 +94,7 @@ class ACAgent(Agent):
 
         return moves
 
-    def predict_policy_and_value(self, game_state: GameStateTemplate) -> float:
+    def predict_policy_and_value(self, game_state: GameStateTemplate):
         Xs = self._encoder.encode([game_state]).to(self.device)  # (1, C, H, W)
 
         policy_logits, values = self._model(Xs)  # (1, num_moves) and (1, 1)
@@ -106,14 +106,14 @@ class ACAgent(Agent):
             dtype=torch.bool,
             device=self.device
         )
-        batch_indices = []
         move_indices = []
         for move in game_state.legal_moves():
             move_idx = self._encoder.encode_point(move.point)
             move_indices.append(move_idx)
 
-        if batch_indices:
-            valid_move_mask[batch_indices, move_indices] = True
+        # Check if any legal moves were found
+        if move_indices:
+            valid_move_mask[0, move_indices] = True
 
         # Prevent 0 probability for games where no valid moves exist
         is_game_over = ~valid_move_mask.any(dim=1)
