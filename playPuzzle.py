@@ -107,21 +107,32 @@ if __name__ == "__main__":
     parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="connectFour")  # The game name, which should also be the encoder name of that game.
     parser.add_argument('--agent', type=str, required=True)
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
+    parser.add_argument('--verbose', action="store_true")
 
     args = parser.parse_args()
 
     game_name = args.game
     agent_filename = args.agent
     device = args.device
+    verbose = args.verbose
 
     puzzles_path = "SimplePuzzles.json"
     puzzles = load_puzzles(puzzles_path)
 
     agent = rl.ACAgent.load(agent_filename, Model, device=device)
 
+    moves_correct = 0
+    total_moves = 0
+
+    puzzles_correct = 0
+
+
     for i, puzzle in enumerate(puzzles):
-        print(f"Puzzle {i}:")
+        if verbose:
+            print(f"Puzzle {i}:")
         game_state = puzzle_to_gamestate(game_name, puzzle)
+
+        puzzle_solved = True
 
         for sol_move_num in range(len(puzzle.solutions[0])):
             # Computer's turn at uneven solution move numbers
@@ -137,38 +148,42 @@ if __name__ == "__main__":
                 game_state = game_state.apply_move(move)
                 continue
 
-            print(f"Solution move {sol_move_num+1}:")
-            game_state.board.visualize()
+            if verbose:
+                print(f"Solution move {sol_move_num+1}:")
+                game_state.board.visualize()
 
             unique_moves: List[PuzzleMove] = []
             for solution_path in puzzle.solutions:
                 solution_move = solution_path[sol_move_num]
                 if solution_move not in unique_moves:
                     unique_moves.append(solution_move)
-            print(f"Found {len(unique_moves)} unique moves for move number {sol_move_num+1}")
             correct_move_prob_per_move = 1 / len(unique_moves)
             correct_cols = [puzzle_index_format_to_game_format(m.row, m.column, puzzle.board.num_rows)[1] for m in unique_moves]
 
-            print("-----------------------------------------------------")
-            print("Col 1 | Col 2 | Col 3 | Col 4 | Col 5 | Col 6 | Col 7")
-            print("-----------------------------------------------------")
-            # Get solution move probabilities and print
-            probs = [
-                f"{correct_move_prob_per_move:.3f}" if col in correct_cols else f"{0:.3f}"
-                for col in range(1, 8)
-            ]
-            print(" | ".join(probs))
+            if verbose:
+                print(f"Found {len(unique_moves)} unique moves for move number {sol_move_num+1}")
+                print("-----------------------------------------------------")
+                print("Col 1 | Col 2 | Col 3 | Col 4 | Col 5 | Col 6 | Col 7")
+                print("-----------------------------------------------------")
+                # Get solution move probabilities and print
+                probs = [
+                    f"{correct_move_prob_per_move:.3f}" if col in correct_cols else f"{0:.3f}"
+                    for col in range(1, 8)
+                ]
+                print(" | ".join(probs))
 
             # Get agent move probabilities and print
-            move_probs, estimated_value = move_logits = agent.predict_policy_and_value(game_state=game_state)
+            move_probs, _ = move_logits = agent.predict_policy_and_value(game_state=game_state)
             probs_2d = move_probs.reshape(
                 puzzle.board.num_rows,
                 puzzle.board.num_cols,
             )
             max_col_probs = torch.max(probs_2d, dim=0).values
-            max_prob_strings = [f"{prob:.3f}" for prob in max_col_probs]
-            print(" | ".join(max_prob_strings))
-            print("-----------------------------------------------------")
+
+            if verbose:
+                max_prob_strings = [f"{prob:.3f}" for prob in max_col_probs]
+                print(" | ".join(max_prob_strings))
+                print("-----------------------------------------------------")
 
             # Make player move
             puzzle_move = puzzle.solutions[0][sol_move_num]
@@ -181,6 +196,22 @@ if __name__ == "__main__":
             )
             game_state = game_state.apply_move(move)
 
-        print("Solved!")
-        game_state.board.visualize()
-        print("\n\n")
+            agent_answer = int(torch.argmax(max_col_probs))+1
+            if agent_answer in correct_cols:
+                moves_correct += 1
+                total_moves += 1
+            else:
+                puzzle_solved = False
+                total_moves += 1
+
+        if verbose:
+            print("Solved!")
+            game_state.board.visualize()
+            print("\n\n")
+
+        if puzzle_solved:
+            puzzles_correct += 1
+
+    print(f"Final statistics for agent {agent_filename}:")
+    print(f"Move accuracy: {moves_correct/total_moves:.3f}%")
+    print(f"Puzzle accuracy: {puzzles_correct/len(puzzles):.3f}%")
