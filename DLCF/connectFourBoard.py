@@ -41,6 +41,8 @@ class Board():
         return self._grid.get(point)
 
     def visualize(self):
+        row_width = len(str(self.num_rows))
+
         for r in range(1, self.num_rows + 1):
             row_output = []
             for c in range(1, self.num_cols + 1):
@@ -53,9 +55,10 @@ class Board():
                     row_output.append('X')
                 else:
                     row_output.append('.')
-            print(' '.join(row_output))
 
-        print(' '.join(str(c) for c in range(1, self.num_cols + 1)))
+            print(f"{str(r).rjust(row_width)} " + ' '.join(row_output))
+
+        print(" " * (row_width + 1) + ' '.join(str(c) for c in range(1, self.num_cols + 1)))
 
 
 class GameState(GameStateTemplate):
