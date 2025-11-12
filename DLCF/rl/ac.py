@@ -94,26 +94,31 @@ class ACAgent(Agent):
 
         return moves
 
-    def predict_policy_and_value(self, game_state: GameStateTemplate):
-        Xs = self._encoder.encode([game_state]).to(self.device)  # (1, C, H, W)
-
-        policy_logits, values = self._model(Xs)  # (1, num_moves) and (1, 1)
-        estimated_value = values.squeeze(-1) # (1,)
+    def predict_policy_and_value(self, game_states: List[GameStateTemplate]):
         num_moves = self._encoder.board_width * self._encoder.board_height
+        bs = len(game_states)
+
+        Xs = self._encoder.encode(game_states).to(self.device)  # (B, C, H, W)
+
+        policy_logits, values = self._model(Xs)  # (B, num_moves) and (B, 1)
+        estimated_values = values.squeeze(-1) # (B,)
+
         valid_move_mask = torch.zeros(
-            1,
+            bs,
             num_moves,
             dtype=torch.bool,
             device=self.device
         )
+        batch_indices = []
         move_indices = []
-        for move in game_state.legal_moves():
-            move_idx = self._encoder.encode_point(move.point)
-            move_indices.append(move_idx)
+        for i, game_state in enumerate(game_states):
+            for move in game_state.legal_moves():
+                move_idx = self._encoder.encode_point(move.point)
+                batch_indices.append(i)
+                move_indices.append(move_idx)
 
-        # Check if any legal moves were found
-        if move_indices:
-            valid_move_mask[0, move_indices] = True
+        if batch_indices:
+            valid_move_mask[batch_indices, move_indices] = True
 
         # Prevent 0 probability for games where no valid moves exist
         is_game_over = ~valid_move_mask.any(dim=1)
@@ -125,7 +130,7 @@ class ACAgent(Agent):
 
         move_probs = nn.functional.softmax(masked_logits, dim=-1)  # (B, num_moves)
 
-        return move_probs, estimated_value
+        return move_probs, estimated_values
 
 
     def train(self, experience: ExperienceBuffer, lr:float=0.0001, batch_size:int=128, entropy_coef: float = 0.001, ppo_epochs: int = 3, clip_epsilon: float = 0.2):
