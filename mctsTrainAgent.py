@@ -1,119 +1,100 @@
-import torch
-import torch.nn.functional as F
 import argparse
-from tqdm import tqdm
-from torch.optim import Adam
-from torch.utils.data import DataLoader
 
+from DLCF import rl
+from typing import List
 from Model import Model
 from DLCF.rl import ACAgent
-from DLCF.rl.mctsExperience import MCTSExperienceBuffer
+from DLCF.mcts import MCTSAgent
 
 def mctsTrainAgent(
     learning_agent_filename: str,
-    experience_buffer: MCTSExperienceBuffer,
+    experience_files: List[str],
     updated_agent_filename: str,
     learning_rate: float,
     batch_size: int,
-    train_epochs: int,
-    l2_reg: float,
+    entropy_coef: float,
+    ppo_epochs: int,
+    clip_epsilon: float,
     device: str = "cpu"
 ):
-    # Load the agent you want to train
-    learning_agent = ACAgent.load(learning_agent_filename, Model, device=device)
-    learning_agent._model.train() # Set to train mode
+    ac_agent = ACAgent.load(learning_agent_filename, Model, device=device)
+    learning_agent = MCTSAgent(
+        ac_agent=ac_agent,
+        num_rounds=100,
+        device=device,
+    )
 
-    optimizer = Adam(learning_agent._model.parameters(), lr=learning_rate, weight_decay=l2_reg)
+    total_policy_loss = 0
+    total_entropy_loss = 0
+    total_value_loss = 0
+    total_combined_loss = 0
+    total_grad_norm_before = 0
+    total_grad_norm_after = 0
+    num_exp_files = len(experience_files)
 
-    total_policy_loss_epoch = 0
-    total_value_loss_epoch = 0
-    total_combined_loss_epoch = 0
+    for exp_filename in experience_files:
+        exp_buffer = rl.ExperienceBuffer.load(exp_filename)
 
-    num_batches = len(experience_buffer) // batch_size
-    if num_batches == 0 and len(experience_buffer) > 0:
-        num_batches = 1
-        print(f"Warning: Batch size {batch_size} is larger than buffer size {len(experience_buffer)}. Running one batch.")
-    elif num_batches == 0:
-        print("Error: Experience buffer is empty. Cannot train.")
-        return 0, 0, 0
+        policy_loss, entropy_loss, value_loss, combined_loss, grad_norm_before, grad_norm_after = learning_agent.ac_agent.train(
+            exp_buffer,
+            lr=learning_rate,
+            batch_size=batch_size,
+            entropy_coef=entropy_coef,
+            ppo_epochs=ppo_epochs,
+            clip_epsilon=clip_epsilon,
+        )
 
-    for _ in tqdm(range(train_epochs), desc="Training agent on MCTS data"):
-        total_policy_loss = 0
-        total_value_loss = 0
-        total_combined_loss = 0
+        total_policy_loss += policy_loss
+        total_entropy_loss += entropy_loss
+        total_value_loss += value_loss
+        total_combined_loss += combined_loss
+        total_grad_norm_before += grad_norm_before
+        total_grad_norm_after += grad_norm_after
 
-        data_loader = DataLoader(experience_buffer.buffer, batch_size=batch_size, shuffle=True)
+    learning_agent.ac_agent.save(updated_agent_filename)
 
-        for states_batch, policy_targets_batch, winner_targets_batch in data_loader:
-            states_batch = states_batch.to(device)
-            policy_targets_batch = policy_targets_batch.to(device)
-            winner_targets_batch = winner_targets_batch.to(device).view(-1, 1) # (B, 1)
-
-            optimizer.zero_grad()
-
-            policy_logits, value_pred = learning_agent._model(states_batch)
-
-            # Value Loss
-            value_loss = F.mse_loss(value_pred, winner_targets_batch)
-
-            # Policy Loss
-            policy_loss = F.cross_entropy(policy_logits, policy_targets_batch)
-
-            total_loss = policy_loss + value_loss
-
-            total_loss.backward()
-            optimizer.step()
-
-            total_policy_loss += policy_loss.item()
-            total_value_loss += value_loss.item()
-            total_combined_loss += total_loss.item()
-
-        total_policy_loss_epoch += (total_policy_loss / num_batches)
-        total_value_loss_epoch += (total_value_loss / num_batches)
-        total_combined_loss_epoch += (total_combined_loss / num_batches)
-
-    learning_agent.save(updated_agent_filename)
-
-    avg_policy_loss = total_policy_loss_epoch / train_epochs
-    avg_value_loss = total_value_loss_epoch / train_epochs
-    avg_combined_loss = total_combined_loss_epoch / train_epochs
-
-    print(f"Training complete. Policy Loss: {avg_policy_loss:.4f}, Value Loss: {avg_value_loss:.4f}")
-
-    return avg_policy_loss, avg_value_loss, avg_combined_loss
+    return (
+        total_policy_loss / num_exp_files,
+        total_entropy_loss / num_exp_files,
+        total_value_loss / num_exp_files,
+        total_combined_loss / num_exp_files,
+        total_grad_norm_before / num_exp_files,
+        total_grad_norm_after / num_exp_files,
+    )
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--learning-agent', type=str, required=True, help="Agent to load and train.")
     parser.add_argument('--agent-out', type=str, required=True, help="Path to save the new agent.")
-    parser.add_argument('--experience-in', type=str, required=True, help="Path to the MCTSExperienceBuffer file.")
-    parser.add_argument('--buffer-size', type=int, default=20000, help="Max size of the experience buffer (must match buffer creation).")
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--bs', type=int, default=512)
-    parser.add_argument('--train-epochs', type=int, default=3)
-    parser.add_argument('--l2-reg', type=float, default=1e-4, help="L2 Regularization strength (weight decay).")
+    parser.add_argument('--entropy-coef', type=float, default=0.001)
+    parser.add_argument('--ppo-epochs', type=int, default=3)
+    parser.add_argument('--clip-epsilon', type=float, default=0.02)
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu')
+    parser.add_argument('experience', nargs='+')
 
     args = parser.parse_args()
 
-    try:
-        experience_buffer = MCTSExperienceBuffer.load(args.experience_in, args.buffer_size)
-        print(f"Loaded {len(experience_buffer)} samples from {args.experience_in}")
-    except FileNotFoundError:
-        print(f"Could not find experience file: {args.experience_in}")
-        exit(1)
-    except Exception as e:
-        print(f"Error loading buffer: {e}")
-        exit(1)
+    learning_agent_filename = args.learning_agent
+    experience_files = args.experience
+    updated_agent_filename = args.agent_out
+    learning_rate = args.lr
+    batch_size = args.bs
+    entropy_coef = args.entropy_coef
+    ppo_epochs = args.ppo_epochs
+    clip_epsilon = args.clip_epsilon
+    device = args.device
 
     mctsTrainAgent(
-        learning_agent_filename=args.learning_agent,
-        experience_buffer=experience_buffer,
-        updated_agent_filename=args.agent_out,
-        learning_rate=args.lr,
-        batch_size=args.bs,
-        train_epochs=args.train_epochs,
-        l2_reg=args.l2_reg,
-        device=args.device
+        learning_agent_filename=learning_agent_filename,
+        experience_files=experience_files,
+        updated_agent_filename=updated_agent_filename,
+        learning_rate=learning_rate,
+        batch_size=batch_size,
+        entropy_coef=entropy_coef,
+        ppo_epochs=ppo_epochs,
+        clip_epsilon=clip_epsilon,
+        device=device
     )

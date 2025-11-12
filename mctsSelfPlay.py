@@ -1,13 +1,17 @@
 import argparse
+from DLCF import rl
 from tqdm import tqdm
 from Model import Model
 from typing import Tuple, List
-from DLCF import rl
-from DLCF.mcts.mcts import MCTSAgent, MCTSNode
-from DLCF.DLCFtypes import Player, GameStateTemplate, Move
+from DLCF.DLCFtypes import Player
+from collections import namedtuple
+from DLCF.mcts.mcts import MCTSAgent
 from DLCF.getGameState import getGameState
-from DLCF.rl.mctsExperience import MCTSExperienceCollector, MCTSExperienceBuffer
 from constants import WIN_REWARD, LOSS_REWARD
+
+
+class GameRecord(namedtuple('GameRecord', 'winner')):
+    pass
 
 
 def simulate_game(
@@ -52,7 +56,7 @@ def simulate_game(
 def mctsSelfPlay(
     game_name: str,
     agent_filename: str,
-    experience_buffer: MCTSExperienceBuffer,
+    experience_filename: str,
     num_games: int,
     board_size: Tuple[int, int],
     batch_size: int,
@@ -61,38 +65,52 @@ def mctsSelfPlay(
     temperature: float,
     device: str = "cpu"
 ):
-    if num_games % batch_size != 0:
-        print(f"Warning: num_games ({num_games}) not divisible by batch_size ({batch_size}). Adjusting num_games.")
-        num_games = (num_games // batch_size) * batch_size
-        if num_games == 0:
-            print("Error: num_games is 0 after adjusting for batch size. Aborting.")
-            return
+    assert num_games > batch_size, "Need more eval games than batch size"
 
     num_batches = num_games // batch_size
 
-    ac_agent = rl.ACAgent.load(agent_filename, Model, device=device)
-    mcts_agent = MCTSAgent(
-        ac_agent=ac_agent,
+    ac_agent1 = rl.ACAgent.load(agent_filename, Model, device=device)
+    mcts_agent1 = MCTSAgent(
+        ac_agent=ac_agent1,
+        num_rounds=num_rounds,
+        c_puct=c_puct,
+        temperature=temperature
+    )
+    ac_agent2 = rl.ACAgent.load(agent_filename, Model, device=device)
+    mcts_agent2 = MCTSAgent(
+        ac_agent=ac_agent2,
         num_rounds=num_rounds,
         c_puct=c_puct,
         temperature=temperature
     )
 
-    collectors = [MCTSExperienceCollector() for _ in range(batch_size)]
 
-    for _ in tqdm(range(num_batches), desc="Generating MCTS Experience"):
-        for i in tqdm(range(batch_size), desc="Simulating batch", leave=False):
-            simulate_game(
-                game_name=game_name,
-                mcts_agent=mcts_agent,
-                board_size=board_size,
-                collector=collectors[i]
-            )
+    collectors1 = [rl.ExperienceCollector() for _ in range(batch_size)]
+    collectors2 = [rl.ExperienceCollector() for _ in range(batch_size)]
 
-        for collector in collectors:
-            experience_buffer.add_game(collector)
+    mcts_agent1.ac_agent.set_collectors(collectors1)
+    mcts_agent2.ac_agent.set_collectors(collectors2)
 
-    print(f"Experience buffer now has {len(experience_buffer)} samples.")
+    for _ in tqdm(range(num_batched_simualtions), desc=f"Generating experience"):
+        for i in range(batch_size):
+            collectors1[i].begin_episode()
+            collectors2[i].begin_episode()
+
+        game_records = simulate_games(game_name, mcts_agent1, mcts_agent2, board_size, batch_size=batch_size)
+
+        for i in range(batch_size):
+            if game_records[i].winner == Player.black:
+                collectors1[i].complete_episode(reward=WIN_REWARD)
+                collectors2[i].complete_episode(reward=LOSS_REWARD)
+            elif game_records[i].winner == Player.white:
+                collectors2[i].complete_episode(reward=WIN_REWARD)
+                collectors1[i].complete_episode(reward=LOSS_REWARD)
+            else: # Draw
+                collectors1[i].complete_episode(reward=0)
+                collectors2[i].complete_episode(reward=0)
+
+    experience = rl.combine_experience([collectors1, collectors2])
+    experience.save(experience_filename)
 
 
 if __name__ == '__main__':
