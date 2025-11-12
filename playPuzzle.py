@@ -17,7 +17,7 @@ np.set_printoptions(linewidth=200, precision=8, suppress=True)
 class PuzzleDifficulty(str, Enum):
     SIMPLE = "Simple"
     TOUGH = "Tough"
-    HARD = "Harder"
+    HARD = "Hard"
     SEVERE = "Severe"
 
 @dataclass(frozen=True)
@@ -102,6 +102,25 @@ def puzzle_to_gamestate(game_name: str, puzzle: Puzzle):
     return gs
 
 
+def print_debug_data(game_state: GameState, unique_moves: List, sol_move_num: int, solution_prob_strings: List[str], max_prob_strings: List[str], value_strings: List[str]):
+    print(f"Solution move {sol_move_num+1}:")
+    game_state.board.visualize()
+
+    print(f"Found {len(unique_moves)} unique moves for move number {sol_move_num+1}")
+    print("---------------------------------------------------------------------------")
+    print("               Col 1  | Col 2  | Col 3  | Col 4  | Col 5  | Col 6  | Col 7 ")
+    print("---------------------------------------------------------------------------")
+    print("True probs:  | ", end="")
+    print(" | ".join(solution_prob_strings))
+
+    print("Pred probs:  | ", end="")
+    print(" | ".join(max_prob_strings))
+
+    print("Move values: | ", end="")
+    print(" | ".join(value_strings))
+    print("---------------------------------------------------------------------------")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="connectFour")  # The game name, which should also be the encoder name of that game.
@@ -116,16 +135,14 @@ if __name__ == "__main__":
     device = args.device
     verbose = args.verbose
 
-    puzzles_path = "SimplePuzzles.json"
+    puzzles_path = "ToughPuzzles.json"
     puzzles = load_puzzles(puzzles_path)
 
     agent = rl.ACAgent.load(agent_filename, Model, device=device)
 
     moves_correct = 0
     total_moves = 0
-
     puzzles_correct = 0
-
 
     for i, puzzle in enumerate(puzzles):
         if verbose:
@@ -148,10 +165,7 @@ if __name__ == "__main__":
                 game_state = game_state.apply_move(move)
                 continue
 
-            if verbose:
-                print(f"Solution move {sol_move_num+1}:")
-                game_state.board.visualize()
-
+            # Get solution move probabilities
             unique_moves: List[PuzzleMove] = []
             for solution_path in puzzle.solutions:
                 solution_move = solution_path[sol_move_num]
@@ -160,30 +174,25 @@ if __name__ == "__main__":
             correct_move_prob_per_move = 1 / len(unique_moves)
             correct_cols = [puzzle_index_format_to_game_format(m.row, m.column, puzzle.board.num_rows)[1] for m in unique_moves]
 
-            if verbose:
-                print(f"Found {len(unique_moves)} unique moves for move number {sol_move_num+1}")
-                print("-----------------------------------------------------")
-                print("Col 1 | Col 2 | Col 3 | Col 4 | Col 5 | Col 6 | Col 7")
-                print("-----------------------------------------------------")
-                # Get solution move probabilities and print
-                probs = [
-                    f"{correct_move_prob_per_move:.3f}" if col in correct_cols else f"{0:.3f}"
-                    for col in range(1, 8)
-                ]
-                print(" | ".join(probs))
-
-            # Get agent move probabilities and print
-            move_probs, _ = move_logits = agent.predict_policy_and_value(game_state=game_state)
-            probs_2d = move_probs.reshape(
+            # Get agent move probabilities and post-move values
+            game_states_to_predict = [game_state]
+            col_to_batch_index = {}
+            legal_moves = game_state.legal_moves()
+            for move in legal_moves:
+                col_idx = move.point.col - 1 # 0-indexed
+                next_state = game_state.apply_move(move)
+                col_to_batch_index[col_idx] = len(game_states_to_predict)
+                game_states_to_predict.append(next_state)
+            move_probs, estimated_values = agent.predict_policy_and_value(
+                game_states=game_states_to_predict
+            )
+            # We only need move probs for the current (first) game state
+            current_state_probs = move_probs[0]
+            probs_2d = current_state_probs.reshape(
                 puzzle.board.num_rows,
                 puzzle.board.num_cols,
             )
             max_col_probs = torch.max(probs_2d, dim=0).values
-
-            if verbose:
-                max_prob_strings = [f"{prob:.3f}" for prob in max_col_probs]
-                print(" | ".join(max_prob_strings))
-                print("-----------------------------------------------------")
 
             # Make player move
             puzzle_move = puzzle.solutions[0][sol_move_num]
@@ -196,6 +205,18 @@ if __name__ == "__main__":
             )
             game_state = game_state.apply_move(move)
 
+            # Print board and predicted/ true solution data
+            if verbose:
+                solution_prob_strings = [f"{correct_move_prob_per_move:+.3f}" if col in correct_cols else f"{0:+.3f}"for col in range(1, 8)]
+                max_prob_strings = [f"{prob:+.3f}" for prob in max_col_probs]
+                hypothetical_values_by_col = [0.0] * puzzle.board.num_cols
+                for col_idx, batch_idx in col_to_batch_index.items():
+                    hypothetical_values_by_col[col_idx] = estimated_values[batch_idx].item()
+                value_strings = [f"{v:+.3f}" for v in hypothetical_values_by_col]
+
+                print_debug_data(game_state, unique_moves, sol_move_num, solution_prob_strings, max_prob_strings, value_strings)
+
+            # Record stats
             agent_answer = int(torch.argmax(max_col_probs))+1
             if agent_answer in correct_cols:
                 moves_correct += 1
@@ -205,7 +226,7 @@ if __name__ == "__main__":
                 total_moves += 1
 
         if verbose:
-            print("Solved!")
+            print("Solved!" if puzzle_solved else f"Puzzle failed.")
             game_state.board.visualize()
             print("\n\n")
 
