@@ -1,5 +1,6 @@
 import enum
-from typing import NamedTuple
+from DLCFtypes import Move
+from typing import NamedTuple, List
 
 
 class Player(enum.Enum):
@@ -42,7 +43,7 @@ class GameStateTemplate:
     def is_over(self):
         raise NotImplementedError()
 
-    def legal_moves(self):
+    def legal_moves(self) -> List[Move]:
         raise NotImplementedError()
 
     def winner(self):
