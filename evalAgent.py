@@ -29,7 +29,7 @@ def evalAgent(game_name: str, agent1_path: str, agent2_path: str, num_games: int
         losses += sum(1 if game_record.winner == color1.other else 0 for game_record in game_records)
 
         color1 = color1.other
-    print(f'Agent 1 record: {wins}/{wins + losses} ({wins / (wins+losses)})%')
+    print(f'Agent 1 record: {wins}/{wins + losses} ({wins / (wins+losses):.3f})%')
 
     return wins / (wins + losses)
 
