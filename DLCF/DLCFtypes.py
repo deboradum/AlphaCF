@@ -1,5 +1,4 @@
 import enum
-from DLCFtypes import Move
 from typing import NamedTuple, List
 
 
