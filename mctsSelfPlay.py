@@ -1,3 +1,4 @@
+import torch
 import argparse
 from DLCF import rl
 from tqdm import tqdm
@@ -16,41 +17,36 @@ class GameRecord(namedtuple('GameRecord', 'winner')):
 
 def simulate_game(
     game_name: str,
-    mcts_agent: MCTSAgent,
+    black_player: MCTSAgent,
+    white_player: MCTSAgent,
     board_size: Tuple[int, int],
-    collector: MCTSExperienceCollector
 ):
-    ac_agent = mcts_agent.ac_agent
-    encoder = ac_agent._encoder
-    num_moves = encoder.num_points()
+    agents = [
+        black_player,
+        white_player,
+    ]
 
     game = getGameState(game_name=game_name).new_game(board_size)
-    collector.begin_episode()
 
-    while True:
-        policy_target, selected_move = mcts_agent.run_search(game)
+    turn_idx = 0
+    with torch.no_grad():
+        while True:
+            selected_moves = agents[turn_idx].select_moves([game])
+            selected_move = selected_moves[0]  # bs 1
 
-        if selected_move is None:
-            collector.complete_episode(winner_val=0.0)
-            break
+            # Draw
+            if selected_move is None:
+                winner = None
+                break
 
-        state_tensor = encoder.encode([game])[0]
-        collector.record_decision(state=state_tensor, policy_target=policy_target)
+            game = game.apply_move(selected_move)
+            turn_idx = (turn_idx + 1) % 2
 
-        game = game.apply_move(selected_move)
+            if game.is_over():
+                winner = game.compute_game_result()
+                break
 
-        if game.is_over():
-            winner = game.compute_game_result()
-            if winner == Player.black:
-                winner_val = WIN_REWARD
-            elif winner == Player.white:
-                winner_val = LOSS_REWARD
-            else:
-                winner_val = 0.0
-
-            collector.complete_episode(winner_val=winner_val)
-            break
-    return
+    return GameRecord(winner=winner)
 
 
 def mctsSelfPlay(
@@ -65,10 +61,6 @@ def mctsSelfPlay(
     temperature: float,
     device: str = "cpu"
 ):
-    assert num_games > batch_size, "Need more eval games than batch size"
-
-    num_batches = num_games // batch_size
-
     ac_agent1 = rl.ACAgent.load(agent_filename, Model, device=device)
     mcts_agent1 = MCTSAgent(
         ac_agent=ac_agent1,
@@ -85,31 +77,30 @@ def mctsSelfPlay(
     )
 
 
-    collectors1 = [rl.ExperienceCollector() for _ in range(batch_size)]
-    collectors2 = [rl.ExperienceCollector() for _ in range(batch_size)]
+    collector1 = rl.ExperienceCollector()
+    collector2 = rl.ExperienceCollector()
 
-    mcts_agent1.ac_agent.set_collectors(collectors1)
-    mcts_agent2.ac_agent.set_collectors(collectors2)
+    mcts_agent1.ac_agent.set_collectors([collector1])
+    mcts_agent2.ac_agent.set_collectors([collector2])
 
-    for _ in tqdm(range(num_batched_simualtions), desc=f"Generating experience"):
+    for _ in tqdm(range(num_games), desc=f"Generating experience"):
         for i in range(batch_size):
-            collectors1[i].begin_episode()
-            collectors2[i].begin_episode()
+            collector1.begin_episode()
+            collector2.begin_episode()
 
-        game_records = simulate_games(game_name, mcts_agent1, mcts_agent2, board_size, batch_size=batch_size)
+        game_record = simulate_game(game_name, mcts_agent1, mcts_agent2, board_size)
 
-        for i in range(batch_size):
-            if game_records[i].winner == Player.black:
-                collectors1[i].complete_episode(reward=WIN_REWARD)
-                collectors2[i].complete_episode(reward=LOSS_REWARD)
-            elif game_records[i].winner == Player.white:
-                collectors2[i].complete_episode(reward=WIN_REWARD)
-                collectors1[i].complete_episode(reward=LOSS_REWARD)
-            else: # Draw
-                collectors1[i].complete_episode(reward=0)
-                collectors2[i].complete_episode(reward=0)
+        if game_record.winner == Player.black:
+            collector1.complete_episode(reward=WIN_REWARD)
+            collector2.complete_episode(reward=LOSS_REWARD)
+        elif game_record.winner == Player.white:
+            collector2.complete_episode(reward=WIN_REWARD)
+            collector1.complete_episode(reward=LOSS_REWARD)
+        else: # Draw
+            collector1.complete_episode(reward=0)
+            collector2.complete_episode(reward=0)
 
-    experience = rl.combine_experience([collectors1, collectors2])
+    experience = rl.combine_experience([[collector1], [collector2]])
     experience.save(experience_filename)
 
 
@@ -130,20 +121,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    try:
-        experience_buffer = MCTSExperienceBuffer.load(args.experience_out, args.buffer_size)
-        print(f"Loaded existing experience buffer from {args.experience_out}. Size: {len(experience_buffer)}")
-    except FileNotFoundError:
-        experience_buffer = MCTSExperienceBuffer(buffer_size=args.buffer_size)
-        print(f"Created new experience buffer. Size: {args.buffer_size}")
-    except Exception as e:
-        print(f"Could not load buffer, creating new one. Error: {e}")
-        experience_buffer = MCTSExperienceBuffer(buffer_size=args.buffer_size)
-
     mctsSelfPlay(
         game_name=args.game,
         agent_filename=args.agent,
-        experience_buffer=experience_buffer,
+        experience_filename=args.experience_out,
         num_games=args.num_games,
         board_size=tuple(args.board_size),
         batch_size=args.batch_size,
@@ -152,6 +133,3 @@ if __name__ == '__main__':
         temperature=args.temperature,
         device=args.device
     )
-
-    experience_buffer.save(args.experience_out)
-    print(f"Experience saved to {args.experience_out}")

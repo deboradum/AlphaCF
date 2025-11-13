@@ -10,7 +10,6 @@ from DLCF.DLCFtypes import Move
 import torch.nn.functional as F
 from DLCF.getGameState import GameStateTemplate
 from torch.utils.data import TensorDataset, DataLoader
-from DLCF.rl.mctsExperience import MCTSExperienceBuffer
 
 __all__ = [
     'MCTSAgent',
@@ -94,23 +93,56 @@ class MCTSAgent(agent.Agent):
         self.device = device
 
     def select_moves(self, game_states: List[GameStateTemplate]) -> List[Move]:
+        bs = len(game_states)
+
         moves = []
         for game_state in game_states:
-            # run_search returns the best policy and the selected move
-            policy_target, selected_move = self.run_search(game_state)
+            # _run_search() returns the best policy and the selected move
+            (
+                Xs,
+                action_tensors,
+                estimated_values,
+                log_probs,
+                move_probs,
+                valid_move_mask,
+                mcts_policy_target,
+                mcts_value_target,
+                selected_move
+            ) = self._run_search(game_state)
 
+            if self.ac_agent._collectors is not None and Xs is not None:
+                action_indices = action_tensors.tolist()
+                mcts_policy_target_list = mcts_policy_target.tolist()
+                # mcts_value_target_list = mcts_value_target.tolist()
+                for i in range(bs):
+                    self.ac_agent._collectors[i].record_decision(
+                        state=Xs[i],
+                        action=action_indices[i],
+                        log_prob=mcts_policy_target_list[i],
+                        estimated_value=mcts_value_target,  # TODO: change this if I want batching
+                        mask=valid_move_mask[i]
+                    )
+
+            # Should never happen
             if selected_move is None:
-                # This can happen if the game is over or no legal moves.
-                # Fallback to a random move just in case.
                 legal_moves = game_state.legal_moves()
                 selected_move = random.choice(legal_moves) if legal_moves else None
 
             moves.append(selected_move)
         return moves
 
-    def run_search(self, game_state: GameStateTemplate):
+    def _run_search(self, game_state: GameStateTemplate):
         root = MCTSNode(game_state, prob=1.0)
-        for _ in range(self.num_rounds):
+
+        root_data = {
+            "Xs": None,
+            "action_tensors": None,
+            "estimated_values": None,
+            "log_probs": None,
+            "move_probs": None,
+            "valid_move_mask": None
+        }
+        for i in range(self.num_rounds): # <-- Capture iteration number 'i'
             node = root
             path = [root]
 
@@ -131,8 +163,16 @@ class MCTSAgent(agent.Agent):
                     value = -1.0
             else:
                 with torch.no_grad():
-                    move_probs, value = self.ac_agent.predict_policy_and_value([node.game_state])
-                predicted_value = value[0].item()
+                    Xs, action_tensors, estimated_values, log_probs, move_probs, valid_move_mask = self.ac_agent.sample_moves([node.game_state])
+                if i == 0:
+                    root_data["Xs"] = Xs
+                    root_data["action_tensors"] = action_tensors
+                    root_data["estimated_values"] = estimated_values
+                    root_data["log_probs"] = log_probs
+                    root_data["move_probs"] = move_probs
+                    root_data["valid_move_mask"] = valid_move_mask
+
+                predicted_value = estimated_values[0].item()
 
                 # Convert policy network's probs to dict used in node.expand_children()
                 flattened_probs = move_probs[0]
@@ -154,14 +194,22 @@ class MCTSAgent(agent.Agent):
 
             # Search is now completed
             num_moves: int = self.ac_agent._encoder.num_points()
-            policy_target = torch.zeros(num_moves, dtype=torch.float32)
+            policy_target = torch.zeros(num_moves, dtype=torch.float32) # This is the MCTS policy target
             move_to_child = {child.move: child for child in root.children}
 
             total_visits = root.num_rollouts - 1
             if total_visits <= 0:
                 legal_moves: List[Move] = root.game_state.legal_moves()
                 if not legal_moves:
-                    return policy_target, None
+                    # TODO: Should not happen I think?
+                    print("No legal moves!")
+                    selected_move = None
+                    mcts_value = 0.0 # No rollouts, value is 0
+                    return (
+                        root_data["Xs"], root_data["action_tensors"], root_data["estimated_values"],
+                        root_data["log_probs"], root_data["move_probs"], root_data["valid_move_mask"],
+                        policy_target, mcts_value, selected_move
+                    )
 
                 prob = 1.0 / len(legal_moves)
                 for move in legal_moves:
@@ -169,7 +217,12 @@ class MCTSAgent(agent.Agent):
                     policy_target[move_idx] = prob
 
                 selected_move = random.choice(legal_moves)
-                return policy_target, selected_move
+                mcts_value = root.average_value()
+                return (
+                    root_data["Xs"], root_data["action_tensors"], root_data["estimated_values"],
+                    root_data["log_probs"], root_data["move_probs"], root_data["valid_move_mask"],
+                    policy_target, mcts_value, selected_move
+                )
 
             child_visits = []
             child_moves = []
@@ -192,7 +245,19 @@ class MCTSAgent(agent.Agent):
                 move_idx = random.choices(range(len(child_moves)), weights=draw_probs, k=1)[0]
                 selected_move = child_moves[move_idx]
 
-            return policy_target, selected_move
+            mcts_value = root.average_value()
+
+            return (
+                root_data["Xs"],
+                root_data["action_tensors"],
+                root_data["estimated_values"],
+                root_data["log_probs"],
+                root_data["move_probs"],
+                root_data["valid_move_mask"],
+                policy_target,
+                mcts_value,
+                selected_move
+            )
 
     @staticmethod
     def simulate_random_game(game_state: GameStateTemplate):
@@ -220,79 +285,3 @@ class MCTSAgent(agent.Agent):
             return 1.0
         else:
             return -1.0
-
-    def train(self, experience: MCTSExperienceBuffer, lr:float=0.0001, batch_size:int=128, entropy_coef: float = 0.001, ppo_epochs: int = 3, clip_epsilon: float = 0.2):
-        self.ac_agent._model.train()
-
-        if self.optimizer is None:
-            self.optimizer = Adam(self.ac_agent._model.parameters(), lr=lr)
-        value_loss_fn = nn.MSELoss()
-
-        dataset = TensorDataset(
-            experience.states,
-            experience.policy_targets,
-            experience.value_targets,
-        )
-        data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-        total_policy_loss = 0
-        total_value_loss = 0
-        total_combined_loss = 0
-
-        total_grad_norm_before = 0
-        total_grad_norm_after = 0
-        num_batches = 0
-
-        for _ in tqdm(range(ppo_epochs), desc="Training agent"):
-            for states_batch, policy_targets_batch, winner_targets_batch in data_loader:
-                states_batch = states_batch.to(self.device)
-                policy_targets_batch = policy_targets_batch.to(self.device)
-                winner_targets_batch = winner_targets_batch.to(self.device)
-
-                self.optimizer.zero_grad()
-                policy_logits, value_pred = self.ac_agent._model(states_batch)
-
-                # TODO: Verify masking works properly!
-                # Mask illegal moves
-                # is_game_over = ~masks_batch.any(dim=1)
-                # if is_game_over.any():
-                #     masks_batch[is_game_over, 0] = True
-                # masked_logits = policy_logits.clone()
-                # masked_logits[~masks_batch] = float('-inf')
-                # dist = torch.distributions.Categorical(logits=masked_logits)
-                # new_log_probs = dist.log_prob(actions_batch)
-
-                # TODO: PPO loss function!
-                # ratio = torch.exp(new_log_probs - old_log_probs_batch)
-                # surr1 = ratio * advantages_batch
-                # surr2 = torch.clamp(ratio, 1.0 - clip_epsilon, 1.0 + clip_epsilon) * advantages_batch
-                # policy_loss = -torch.min(surr1, surr2).mean()
-                policy_loss = -torch.sum(policy_targets_batch * F.log_softmax(policy_logits, dim=1), dim=1).mean()
-
-                value_loss = F.mse_loss(value_pred, winner_targets_batch)
-
-                # entropy_loss = -entropy_coef * dist.entropy().mean()
-                entropy_loss = 0.0
-
-                total_loss = policy_loss + 0.5 * value_loss + entropy_loss
-
-                total_loss.backward()
-                grad_norm_before = torch.nn.utils.clip_grad_norm_(self.ac_agent._model.parameters(), max_norm=0.5)
-                grad_norm_after = torch.sqrt(sum(p.grad.norm()**2 for p in self.ac_agent._model.parameters() if p.grad is not None)) # pyright: ignore[reportArgumentType]
-                self.optimizer.step()
-
-                total_policy_loss += policy_loss.item()
-                total_value_loss += value_loss.item()
-                total_combined_loss += total_loss.item()
-
-                total_grad_norm_before += grad_norm_before
-                total_grad_norm_after += grad_norm_after
-                num_batches += 1
-
-        return (
-            total_policy_loss / num_batches,
-            total_value_loss / num_batches,
-            total_combined_loss / num_batches,
-            total_grad_norm_before / num_batches,
-            total_grad_norm_after / num_batches,
-        )

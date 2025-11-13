@@ -79,36 +79,35 @@ def mctsEvalAgent(
     num_batched_simulations = num_games // batch_size
 
     base_agent1 = ACAgent.load(agent1_path, Model, device=device)
-    base_agent2 = ACAgent.load(agent2_path, Model, device=device)
-
     mcts_agent1 = MCTSAgent(base_agent1, num_rounds=num_rounds, c_puct=c_puct, temperature=0.0)
+
+    base_agent2 = ACAgent.load(agent2_path, Model, device=device)
     mcts_agent2 = MCTSAgent(base_agent2, num_rounds=num_rounds, c_puct=c_puct, temperature=0.0)
 
     total_wins_agent1 = 0
     total_wins_agent2 = 0
 
-    agent1_player = Player.black
-
-    for _ in tqdm(range(num_batched_simulations), desc="Evaluating MCTS Agent"):
-        if agent1_player == Player.black:
-            black_agent, white_agent = mcts_agent1, mcts_agent2
+    color1 = Player.black
+    for _ in tqdm(range(num_batched_simulations), desc="Evaluating MCTS afgent against old version"):
+        if color1 == Player.black:
+            black_player, white_player = mcts_agent1, mcts_agent2
         else:
-            black_agent, white_agent = mcts_agent2, mcts_agent1
+            white_player, black_player = mcts_agent1, mcts_agent2
 
         black_wins = simulate_mcts_games(
-            game_name, black_agent, white_agent, board_size, batch_size, verbose=verbose
+            game_name, black_player, white_player, board_size, batch_size, verbose=verbose
         )
 
         white_wins = batch_size - black_wins
 
-        if agent1_player == Player.black:
+        if color1 == Player.black:
             total_wins_agent1 += black_wins
             total_wins_agent2 += white_wins
         else:
             total_wins_agent1 += white_wins
             total_wins_agent2 += black_wins
 
-        agent1_player = agent1_player.other
+        color1 = color1.other
 
     total_played = total_wins_agent1 + total_wins_agent2
     if total_played == 0:

@@ -13,11 +13,10 @@ from mctsTrainAgent import mctsTrainAgent
 
 def MCTSimprove(
     game_name: str,
-    agent_name: str,
     board_size: Tuple[int, int],
     base_agent_path: str,
     num_generations: int,
-    num_games_per_gen: int,
+    num_games_per_iteration: int,
     play_batch_size: int,
     learning_rate: float,
     train_batch_size: int,
@@ -25,16 +24,14 @@ def MCTSimprove(
     mcts_num_rounds: int,
     mcts_c_puct: float,
     mcts_temperature: float,
-    eval_games: int,
     device: str,
     verbose: bool = False,
 ):
-    agent_base = f"./agents/{agent_name}_MCTS"
-    os.makedirs(agent_base, exist_ok=True)
+    assert os.path.isfile(base_agent_path)
+    old_agent_path = base_agent_path
 
-    old_agent_path = f"{agent_base}/gen0"
-
-    experience_base_path = f"{agent_base}/mctsExperiences"
+    base_agent_path_dir = os.path.dirname(base_agent_path)
+    experience_base_path = f"{base_agent_path_dir}/mctsExperiences"
     os.makedirs(experience_base_path, exist_ok=True)
 
     current_generation = 0
@@ -53,7 +50,7 @@ def MCTSimprove(
             game_name=game_name,
             agent_filename=opponent_path,
             experience_filename=experience_filepath,
-            num_games=num_games_per_gen,
+            num_games=num_games_per_iteration,
             board_size=board_size,
             batch_size=play_batch_size,
             num_rounds=mcts_num_rounds,
@@ -62,7 +59,7 @@ def MCTSimprove(
             device="cpu" if device == "mps" else device,  # Self play is faster on cpu than mps
         )
 
-        new_agent_path = f"{agent_base}/gen{current_generation+1}"
+        new_agent_path = f"{base_agent_path_dir}/mctsGen{current_generation+1}"
         policy_loss, entropy_loss, value_loss, total_loss, grad_norm_before_clip, grad_norm_after_clip = mctsTrainAgent(
             learning_agent_filename=old_agent_path,
             experience_files=[experience_filepath],
@@ -79,7 +76,7 @@ def MCTSimprove(
             game_name=game_name,
             agent1_path=new_agent_path,
             agent2_path=old_agent_path,
-            num_games=eval_games,
+            num_games=num_games_per_iteration,
             board_size=board_size,
             batch_size=play_batch_size,
             num_rounds=mcts_num_rounds,
@@ -138,7 +135,6 @@ def MCTSimprove(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="ConnectFour")
-    parser.add_argument('--agent', type=str, default="AlphaZeroAgent")
     parser.add_argument('--base-agent', type=str, required=True, help="Path to the pre-trained PPO agent.")
     parser.add_argument('--num-generations', type=int, default=100)
     parser.add_argument('--num-games-per-iteration', type=int, default=10000)
@@ -160,7 +156,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     game_name = args.game
-    agent_name = args.agent
     base_agent_path = args.base_agent
     num_generations = args.num_generations
     num_games_per_iteration = args.num_games_per_iteration
@@ -177,16 +172,14 @@ if __name__ == "__main__":
     verbose = args.verbose
 
     mcts_rounds = args.mcts_rounds
-    mcts_c = args.mcts_c
+    mcts_c_puct = args.mcts_c_puct
     mcts_temp = args.mcts_temp
 
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
-    if not os.path.exists(base_agent_path):
-        print(f"Error: Base agent not found at {base_agent_path}")
-        exit(1)
+    assert os.path.isfile(base_agent_path), f"Base agent not found at {base_agent_path}"
 
     if device == 'cuda' and not torch.cuda.is_available():
         print("CUDA not available, falling back to CPU.")
@@ -199,10 +192,9 @@ if __name__ == "__main__":
 
     wandb.init(
         project=f"Alpha{game_name}",
-        name=f"{args.agent_name}-MCTS",
+        name=f"{base_agent_path.split('/')[-2]}-mcts",
         config={
             "seed": seed,
-            "agent_name": agent_name,
             "encoder": game_name,
             "learning_rate": learning_rate,
             "learning_rate_decay": learning_rate_decay,
@@ -214,17 +206,20 @@ if __name__ == "__main__":
             "play_batch_size": play_batch_size,
             "board_size": board_size,
             "device": device,
+
+            "mcts_rounds": mcts_rounds,
+            "mcts_c_puct": mcts_c_puct,
+            "mcts_temp": mcts_temp,
         },
         tags=[board_size_str, "mcts"],
     )
 
     MCTSimprove(
         game_name=args.game,
-        agent_name=args.agent_name,
         board_size=tuple(args.board_size),
         base_agent_path=args.base_agent,
         num_generations=args.num_generations,
-        num_games_per_gen=args.num_games_per_gen,
+        num_games_per_iteration=args.num_games_per_iteration,
         play_batch_size=args.play_bs,
         learning_rate=args.lr,
         train_batch_size=args.train_bs,
@@ -232,7 +227,6 @@ if __name__ == "__main__":
         mcts_num_rounds=args.mcts_rounds,
         mcts_c_puct=args.mcts_c_puct,
         mcts_temperature=args.mcts_temp,
-        eval_games=args.eval_games,
         device=args.device,
         verbose=args.verbose,
     )
