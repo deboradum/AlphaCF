@@ -205,7 +205,7 @@ class ACAgent(Agent):
 
                 total_loss.backward()
                 grad_norm_before = torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=0.5)
-                grad_norm_after = torch.sqrt(sum(p.grad.norm()**2 for p in self._model.parameters() if p.grad is not None))
+                grad_norm_after = torch.sqrt(sum(p.grad.norm()**2 for p in self._model.parameters() if p.grad is not None)) # pyright: ignore[reportArgumentType]
                 self.optimizer.step()
 
                 total_policy_loss += policy_loss.item()

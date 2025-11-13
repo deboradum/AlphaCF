@@ -3,11 +3,11 @@ import argparse
 from DLCF import rl
 from tqdm import tqdm
 from Model import Model
-from typing import Tuple, List
 from DLCF.rl import ACAgent
-from DLCF.DLCFtypes import Player, GameStateTemplate
+from typing import Tuple, List
 from collections import namedtuple
 from DLCF.getGameState import getGameState
+from DLCF.DLCFtypes import Player, GameStateTemplate
 
 from constants import WIN_REWARD, LOSS_REWARD
 
