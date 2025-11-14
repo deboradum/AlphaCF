@@ -65,12 +65,12 @@ class ACAgent(Agent):
         action_tensors = dist.sample()  # (B,)
         log_probs = dist.log_prob(action_tensors)  # (B,)
 
-        return Xs, action_tensors, estimated_values, log_probs, valid_move_mask
+        return Xs, action_tensors, estimated_values, log_probs, move_probs, valid_move_mask
 
     def select_moves(self, game_states: List[GameStateTemplate]) -> List[Move]:
         bs = len(game_states)
 
-        Xs, action_tensors, estimated_values, log_probs, valid_move_mask = self.sample_moves(game_states)
+        Xs, action_tensors, estimated_values, log_probs, _, valid_move_mask = self.sample_moves(game_states)
 
         if self._collectors is not None:
             action_indices = action_tensors.tolist()
