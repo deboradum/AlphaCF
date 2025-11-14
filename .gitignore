@@ -1,5 +1,6 @@
 /.vscode
 agents/
+newAgents/
 __pycache__
 .DS_Store
 wandb
