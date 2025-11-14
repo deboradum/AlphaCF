@@ -72,7 +72,7 @@ def MCTSimprove(
             device=device
         )
 
-        win_rate_agent_1 = mctsEvalAgent(
+        win_rate_new_agent = mctsEvalAgent(
             game_name=game_name,
             agent1_path=new_agent_path,
             agent2_path=old_agent_path,
@@ -87,7 +87,7 @@ def MCTSimprove(
 
         num_experiences += num_games_per_iteration
         wandb.log({
-            "win_rate": 1 - win_rate_agent_1,
+            "win_rate": win_rate_new_agent,
             "generation": current_generation,
             "current_learing_rate": current_lr,
             "current_entropy_coefficient": current_entropy_coef,
@@ -103,7 +103,7 @@ def MCTSimprove(
 
         gen_iteration += 1
         # If new netowrk is better
-        if win_rate_agent_1 < 0.5:
+        if win_rate_new_agent > 0.5:
             old_agent_path = new_agent_path
             current_generation += 1
 
