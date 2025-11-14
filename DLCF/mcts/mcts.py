@@ -80,7 +80,7 @@ class MCTSNode(object):
 
 
 class MCTSAgent(agent.Agent):
-    def __init__(self, ac_agent: ACAgent, num_rounds: int, c_puct: float = 1.0, temperature: float = 1.0, lambda_mix: float = 0.0, device: str= "cpu"):
+    def __init__(self, ac_agent: ACAgent, num_rounds: int, c_puct: float = 1.0, temperature: float = 0.0, lambda_mix: float = 0.0):
         agent.Agent.__init__(self)
         self.ac_agent = ac_agent
 
@@ -89,21 +89,18 @@ class MCTSAgent(agent.Agent):
         self.temperature = temperature
         self.lambda_mix = lambda_mix
         self.ac_agent._model.eval()
-        # Just for train() method
-        self.device = device
 
     def select_moves(self, game_states: List[GameStateTemplate]) -> List[Move]:
         bs = len(game_states)
 
         moves = []
         for game_state in game_states:
-            # _run_search() returns the best policy and the selected move
             (
                 Xs,
                 action_tensors,
-                estimated_values,
-                log_probs,
-                move_probs,
+                _,
+                _,
+                _,
                 valid_move_mask,
                 mcts_policy_target,
                 mcts_value_target,
@@ -142,7 +139,8 @@ class MCTSAgent(agent.Agent):
             "move_probs": None,
             "valid_move_mask": None
         }
-        for i in range(self.num_rounds): # <-- Capture iteration number 'i'
+        # Tree search
+        for i in range(self.num_rounds):
             node = root
             path = [root]
 
@@ -192,72 +190,73 @@ class MCTSAgent(agent.Agent):
 
             node.backpropagate(value)
 
-            # Search is now completed
-            num_moves: int = self.ac_agent._encoder.num_points()
-            policy_target = torch.zeros(num_moves, dtype=torch.float32) # This is the MCTS policy target
-            move_to_child = {child.move: child for child in root.children}
+        # Search is now completed
+        num_moves: int = self.ac_agent._encoder.num_points()
+        policy_target = torch.zeros(num_moves, dtype=torch.float32) # This is the MCTS policy target
+        move_to_child = {child.move: child for child in root.children}
 
-            total_visits = root.num_rollouts - 1
-            if total_visits <= 0:
-                legal_moves: List[Move] = root.game_state.legal_moves()
-                if not legal_moves:
-                    # TODO: Should not happen I think?
-                    print("No legal moves!")
-                    selected_move = None
-                    mcts_value = 0.0 # No rollouts, value is 0
-                    return (
-                        root_data["Xs"], root_data["action_tensors"], root_data["estimated_values"],
-                        root_data["log_probs"], root_data["move_probs"], root_data["valid_move_mask"],
-                        policy_target, mcts_value, selected_move
-                    )
-
-                prob = 1.0 / len(legal_moves)
-                for move in legal_moves:
-                    move_idx = self.ac_agent._encoder.encode_point(move.point)
-                    policy_target[move_idx] = prob
-
-                selected_move = random.choice(legal_moves)
-                mcts_value = root.average_value()
+        total_visits = root.num_rollouts - 1
+        if total_visits <= 0:
+            legal_moves: List[Move] = root.game_state.legal_moves()
+            if not legal_moves:
+                raise Exception("No legal moves. This should never happen I think!")
+                print("No legal moves!") # TODO: Should never happen I think?
+                selected_move = None
+                mcts_value = 0.0 # No rollouts, value is 0
                 return (
                     root_data["Xs"], root_data["action_tensors"], root_data["estimated_values"],
                     root_data["log_probs"], root_data["move_probs"], root_data["valid_move_mask"],
                     policy_target, mcts_value, selected_move
                 )
 
-            child_visits = []
-            child_moves = []
-            for move in root.game_state.legal_moves():
-                if move in move_to_child:
-                    child = move_to_child[move]
-                    move_idx = self.ac_agent._encoder.encode_point(move.point)
-                    visits = child.num_rollouts
-                    policy_target[move_idx] = visits / total_visits
-                    child_visits.append(visits)
-                    child_moves.append(move)
+            prob = 1.0 / len(legal_moves)
+            for move in legal_moves:
+                move_idx = self.ac_agent._encoder.encode_point(move.point)
+                policy_target[move_idx] = prob
 
-            # Select the move to play
-            if self.temperature == 0:
-                best_move_idx = torch.argmax(policy_target).item()
-                selected_move = self.ac_agent._encoder.decode_point_index(best_move_idx)
-            else:
-                visits_with_temp = torch.tensor([v**(1.0 / self.temperature) for v in child_visits])
-                draw_probs = visits_with_temp / torch.sum(visits_with_temp)
-                move_idx = random.choices(range(len(child_moves)), weights=draw_probs, k=1)[0]
-                selected_move = child_moves[move_idx]
-
+            selected_move = random.choice(legal_moves)
             mcts_value = root.average_value()
-
             return (
-                root_data["Xs"],
-                root_data["action_tensors"],
-                root_data["estimated_values"],
-                root_data["log_probs"],
-                root_data["move_probs"],
-                root_data["valid_move_mask"],
-                policy_target,
-                mcts_value,
-                selected_move
+                root_data["Xs"], root_data["action_tensors"], root_data["estimated_values"],
+                root_data["log_probs"], root_data["move_probs"], root_data["valid_move_mask"],
+                policy_target, mcts_value, selected_move
             )
+
+        child_visits = []
+        child_moves = []
+        for child in root.children:
+            if child.num_rollouts > 0:
+                move_idx = self.ac_agent._encoder.encode_point(child.move.point)
+                visits = child.num_rollouts
+
+                policy_target[move_idx] = visits / total_visits
+
+                child_visits.append(visits)
+                child_moves.append(child.move)
+
+        # Select the move to play
+        if self.temperature == 0:
+            best_move_idx = torch.argmax(policy_target).item()
+            selected_move = self.ac_agent._encoder.decode_point_index(best_move_idx)
+        else:
+            visits_with_temp = torch.tensor([v**(1.0 / self.temperature) for v in child_visits])
+            draw_probs = visits_with_temp / torch.sum(visits_with_temp)
+            move_idx = random.choices(range(len(child_moves)), weights=draw_probs, k=1)[0]
+            selected_move = child_moves[move_idx]
+
+        mcts_value = root.average_value()
+
+        return (
+            root_data["Xs"],
+            root_data["action_tensors"],
+            root_data["estimated_values"],
+            root_data["log_probs"],
+            root_data["move_probs"],
+            root_data["valid_move_mask"],
+            policy_target,
+            mcts_value,
+            selected_move
+        )
 
     @staticmethod
     def simulate_random_game(game_state: GameStateTemplate):
