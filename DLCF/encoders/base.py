@@ -1,5 +1,5 @@
 import importlib
-from typing import List
+from typing import Tuple, List
 from DLCF.getGameState import GameStateTemplate
 
 __all__ = [
@@ -8,6 +8,10 @@ __all__ = [
 ]
 
 class Encoder:
+    def __init__(self, board_size: Tuple[int, int]=(6, 7)):
+        board_size = tuple(board_size)
+        self.board_height, self.board_width = board_size
+
     def name(self):
         raise NotImplementedError()
 
