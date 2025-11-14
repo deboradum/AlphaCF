@@ -136,10 +136,7 @@ class GameState(GameStateTemplate):
         if not self.is_over():
             return None
 
-        if self.last_move.is_resign:
-            return self.next_player
-
-        winner = self.compute_game_result(self)
+        winner = self.compute_game_result()
 
         return winner
 
