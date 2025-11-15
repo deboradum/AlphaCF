@@ -80,7 +80,17 @@ class MCTSNode(object):
 
 
 class MCTSAgent(agent.Agent):
-    def __init__(self, ac_agent: ACAgent, num_rounds: int, c_puct: float = 1.0, temperature: float = 0.0, lambda_mix: float = 0.0):
+    def __init__(
+        self,
+        ac_agent: ACAgent,
+        num_rounds: int,
+        c_puct: float = 1.0,
+        temperature: float = 0.0,
+        lambda_mix: float = 0.0,
+        dirichlet_alpha: float = 0.3,
+        dirichlet_epsilon: float = 0.25,
+        eval_mode: bool = False,
+    ):
         agent.Agent.__init__(self)
         self.ac_agent = ac_agent
 
@@ -88,7 +98,10 @@ class MCTSAgent(agent.Agent):
         self.c_puct = c_puct
         self.temperature = temperature
         self.lambda_mix = lambda_mix
-        self.ac_agent._model.eval()
+        self.dirichlet_alpha = dirichlet_alpha
+        self.dirichlet_epsilon = dirichlet_epsilon
+        if eval_mode:
+            self.ac_agent._model.eval()
 
     def select_moves(self, game_states: List[GameStateTemplate]) -> List[Move]:
         bs = len(game_states)
@@ -175,10 +188,25 @@ class MCTSAgent(agent.Agent):
                 # Convert policy network's probs to dict used in node.expand_children()
                 flattened_probs = move_probs[0]
                 move_probs_dict = {}
-                for move in node.game_state.legal_moves():
+
+                legal_moves_list = node.game_state.legal_moves()
+                for move in legal_moves_list:
                     move_idx = self.ac_agent._encoder.encode_point(move.point)
                     prob = flattened_probs[move_idx].item()
                     move_probs_dict[move] = prob
+                # Dirichlet noise
+                if node is root and self.dirichlet_epsilon > 0:
+                    num_legal_moves = len(legal_moves_list)
+                    if num_legal_moves > 0:
+                        alphas = torch.full((num_legal_moves,), self.dirichlet_alpha)
+                        dir_dist = torch.distributions.dirichlet.Dirichlet(alphas)
+                        noise = dir_dist.sample()
+
+                        # Mix noise into probs
+                        for i, move in enumerate(legal_moves_list):
+                            original_prob = move_probs_dict[move]
+                            noise_prob = noise[i].item()
+                            move_probs_dict[move] = (1 - self.dirichlet_epsilon) * original_prob + self.dirichlet_epsilon * noise_prob
 
                 node.expand_children(move_probs_dict)
 
