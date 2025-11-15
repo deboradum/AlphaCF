@@ -21,7 +21,6 @@ def mctsTrainAgent(
     learning_agent = MCTSAgent(
         ac_agent=ac_agent,
         num_rounds=100,
-        device=device,
     )
 
     total_policy_loss = 0
