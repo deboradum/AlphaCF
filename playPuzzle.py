@@ -1,3 +1,4 @@
+import time
 import json
 import torch
 import argparse
@@ -7,6 +8,7 @@ from enum import Enum
 from Model import Model
 from typing import List
 from dataclasses import dataclass
+from DLCF.mcts.mcts import MCTSAgent
 from DLCF.DLCFtypes import Player, Move, Point
 from DLCF.connectFourBoard import Board, GameState
 import numpy as np
@@ -104,9 +106,10 @@ def puzzle_to_gamestate(game_name: str, puzzle: Puzzle):
 
 def print_debug_data(game_state: GameState, unique_moves: List, sol_move_num: int, solution_prob_strings: List[str], max_prob_strings: List[str], value_strings: List[str]):
     print(f"Solution move {sol_move_num+1}:")
+    print("Board after move:")
     game_state.board.visualize()
 
-    print(f"Found {len(unique_moves)} unique moves for move number {sol_move_num+1}")
+    print(f"Found {len(unique_moves)} unique winning moves for move number {sol_move_num+1}")
     print("---------------------------------------------------------------------------")
     print("               Col 1  | Col 2  | Col 3  | Col 4  | Col 5  | Col 6  | Col 7 ")
     print("---------------------------------------------------------------------------")
@@ -126,6 +129,9 @@ if __name__ == "__main__":
     parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="connectFour")  # The game name, which should also be the encoder name of that game.
     parser.add_argument('--agent', type=str, required=True)
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
+    parser.add_argument('--mcts', action="store_true")
+    parser.add_argument('--num-rounds', type=int, default=500, help="Number of MCTS simulations per move for eval.")
+    parser.add_argument('--c-puct', type=float, default=1.0, help="MCTS exploration constant.")
     parser.add_argument('--verbose', action="store_true")
 
     args = parser.parse_args()
@@ -135,15 +141,18 @@ if __name__ == "__main__":
     device = args.device
     verbose = args.verbose
 
-    puzzles_path = "ToughPuzzles.json"
+    puzzles_path = "SimplePuzzles.json"
     puzzles = load_puzzles(puzzles_path)
 
     agent = rl.ACAgent.load(agent_filename, Model, device=device)
+    if args.mcts:
+        agent = MCTSAgent(ac_agent=agent, num_rounds=args.num_rounds, c_puct=args.c_puct, eval_mode=True)
 
     moves_correct = 0
     total_moves = 0
     puzzles_correct = 0
 
+    s = time.time()
     for i, puzzle in enumerate(puzzles):
         if verbose:
             print(f"Puzzle {i}:")
@@ -183,11 +192,16 @@ if __name__ == "__main__":
                 next_state = game_state.apply_move(move)
                 col_to_batch_index[col_idx] = len(game_states_to_predict)
                 game_states_to_predict.append(next_state)
-            move_probs, estimated_values = agent.predict_policy_and_value(
-                game_states=game_states_to_predict
-            )
-            # We only need move probs for the current (first) game state
-            current_state_probs = move_probs[0]
+
+            # AC agent
+            if not args.mcts:
+                move_probs, estimated_values = agent.predict_policy_and_value(game_states=game_states_to_predict)
+                # We only need move probs for the current (first) game state
+                current_state_probs = move_probs[0]
+            # MCTS agent
+            else:
+                _, _, _, _, _, _, current_state_probs, current_state_val, _ = agent._run_search(game_state)
+
             probs_2d = current_state_probs.reshape(
                 puzzle.board.num_rows,
                 puzzle.board.num_cols,
@@ -210,9 +224,10 @@ if __name__ == "__main__":
                 solution_prob_strings = [f"{correct_move_prob_per_move:+.3f}" if col in correct_cols else f"{0:+.3f}"for col in range(1, 8)]
                 max_prob_strings = [f"{prob:+.3f}" for prob in max_col_probs]
                 hypothetical_values_by_col = [0.0] * puzzle.board.num_cols
-                for col_idx, batch_idx in col_to_batch_index.items():
-                    hypothetical_values_by_col[col_idx] = estimated_values[batch_idx].item()
-                value_strings = [f"{v:+.3f}" for v in hypothetical_values_by_col]
+                # for col_idx, batch_idx in col_to_batch_index.items():
+                #     hypothetical_values_by_col[col_idx] = estimated_values[batch_idx].item()
+                # value_strings = [f"{v:+.3f}" for v in hypothetical_values_by_col]
+                value_strings = [f"{0:+.3f}"]*7
 
                 print_debug_data(game_state, unique_moves, sol_move_num, solution_prob_strings, max_prob_strings, value_strings)
 
@@ -227,12 +242,13 @@ if __name__ == "__main__":
 
         if verbose:
             print("Solved!" if puzzle_solved else f"Puzzle failed.")
-            game_state.board.visualize()
             print("\n\n")
 
         if puzzle_solved:
             puzzles_correct += 1
 
+    taken = time.time() - s
     print(f"Final statistics for agent {agent_filename}:")
     print(f"Move accuracy: {moves_correct/total_moves:.3f}%")
     print(f"Puzzle accuracy: {puzzles_correct/len(puzzles):.3f}%")
+    print(f"Took {taken:.2f}s")
