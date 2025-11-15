@@ -265,7 +265,7 @@ class MCTSAgent(agent.Agent):
         # Select the move to play
         if self.temperature == 0:
             best_move_idx = torch.argmax(policy_target).item()
-            selected_move = self.ac_agent._encoder.decode_point_index(best_move_idx)
+            selected_move = Move(point=self.ac_agent._encoder.decode_point_index(best_move_idx))
         else:
             visits_with_temp = torch.tensor([v**(1.0 / self.temperature) for v in child_visits])
             draw_probs = visits_with_temp / torch.sum(visits_with_temp)
