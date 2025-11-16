@@ -1,5 +1,5 @@
 import torch
-from typing import List
+from typing import List, Optional
 
 class ExperienceCollector:
     def __init__(self):
@@ -9,12 +9,14 @@ class ExperienceCollector:
         self.advantages: List[torch.Tensor] = []
         self.old_log_probs: List[torch.Tensor] = []
         self.masks: List[torch.Tensor] = []
+        self.policy_targets: List[torch.Tensor] = []
 
         self._current_episode_states = []
         self._current_episode_actions = []
         self._current_episode_estimated_values = []
         self._current_episode_log_probs = []
         self._current_episode_masks = []
+        self._current_episode_policy_targets = []
 
     def begin_episode(self):
         self._current_episode_states = []
@@ -22,13 +24,23 @@ class ExperienceCollector:
         self._current_episode_estimated_values = []
         self._current_episode_log_probs = []
         self._current_episode_masks = []
+        self._current_episode_policy_targets = []
 
-    def record_decision(self, state: torch.Tensor, action: int, log_prob: float, estimated_value:float=0, mask: torch.Tensor | None = None):
+    def record_decision(
+        self,
+        state: torch.Tensor,
+        action: int,
+        log_prob: float,
+        policy_target: torch.Tensor,
+        estimated_value:float=0,
+        mask: Optional[torch.Tensor] = None,
+    ):
         self._current_episode_states.append(state)
         self._current_episode_actions.append(action)
         self._current_episode_estimated_values.append(estimated_value)
         self._current_episode_log_probs.append(log_prob)
         self._current_episode_masks.append(mask)
+        self._current_episode_policy_targets.append(policy_target)
 
     def complete_episode(self, reward: float, gamma: float = 0.99, lambda_: float = 0.95):
         num_states = len(self._current_episode_states)
@@ -60,12 +72,14 @@ class ExperienceCollector:
         self.advantages.append(torch.tensor(advantages, dtype=torch.float32))
         self.rewards.append(torch.tensor(value_targets, dtype=torch.float32))
         self.masks.append(torch.stack(self._current_episode_masks))
+        self.policy_targets.append(torch.stack(self._current_episode_policy_targets))
 
         self._current_episode_states = []
         self._current_episode_actions = []
         self._current_episode_estimated_values = []
         self._current_episode_log_probs = []
         self._current_episode_masks = []
+        self._current_episode_policy_targets = []
 
     def to_buffer(self):
         if not self.states:
@@ -77,18 +91,29 @@ class ExperienceCollector:
             rewards=torch.cat(self.rewards, dim=0),
             advantages=torch.cat(self.advantages, dim=0),
             old_log_probs=torch.cat(self.old_log_probs, dim=0),
-            masks=torch.cat(self.masks, dim=0)
+            masks=torch.cat(self.masks, dim=0),
+            policy_targets=torch.cat(self.policy_targets, dim=0),
         )
 
 
 class ExperienceBuffer:
-    def __init__(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, advantages: torch.Tensor, old_log_probs: torch.Tensor, masks: torch.Tensor):
+    def __init__(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        advantages: torch.Tensor,
+        old_log_probs: torch.Tensor,
+        masks: torch.Tensor,
+        policy_targets: torch.Tensor,
+    ):
         self.states = states
         self.actions = actions
         self.rewards = rewards
         self.advantages = advantages
         self.old_log_probs = old_log_probs
         self.masks = masks
+        self.policy_targets = policy_targets
 
     def save(self, path: str):
         torch.save({
@@ -98,6 +123,7 @@ class ExperienceBuffer:
             'advantages': self.advantages,
             'old_log_probs': self.old_log_probs,
             'masks': self.masks,
+            'policy_targets': self.policy_targets,
         }, path)
 
     @classmethod
@@ -110,6 +136,7 @@ class ExperienceBuffer:
             advantages=data['advantages'],
             old_log_probs=data['old_log_probs'],
             masks=data['masks'],
+            policy_targets=data['policy_targets'],
         )
 
 
@@ -123,6 +150,7 @@ def combine_experience(collectors_lists: List[List[ExperienceCollector]]):
     all_advantages = [tensor for c in all_collectors for tensor in c.advantages]
     all_old_log_probs = [tensor for c in all_collectors for tensor in c.old_log_probs]
     all_masks = [tensor for c in all_collectors for tensor in c.masks]
+    all_policy_targets = [tensor for c in all_collectors for tensor in c.policy_targets]
 
     if not all_states:
         raise ValueError("No experience collected to combine.")
@@ -134,4 +162,5 @@ def combine_experience(collectors_lists: List[List[ExperienceCollector]]):
         advantages=torch.cat(all_advantages, dim=0),
         old_log_probs=torch.cat(all_old_log_probs, dim=0),
         masks=torch.cat(all_masks, dim=0),
+        policy_targets=torch.cat(all_policy_targets, dim=0),
     )
