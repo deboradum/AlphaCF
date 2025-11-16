@@ -1,15 +1,13 @@
 import math
 import torch
 import random
+import numpy as np
 import torch.nn as nn
+from typing import List, Tuple, Optional, Dict
 from DLCF import agent
-from typing import List
 from DLCF.rl import ACAgent
-from torch.optim import Adam
 from DLCF.DLCFtypes import Move
-import torch.nn.functional as F
 from DLCF.getGameState import GameStateTemplate
-from torch.utils.data import TensorDataset, DataLoader
 
 __all__ = [
     'MCTSAgent',
@@ -25,13 +23,16 @@ class MCTSNode(object):
         self.num_rollouts = 0
 
         self.children: List[MCTSNode] = []
-        self.prob = prob  # prior probability p(s,a) from the network
+        self.prob = prob  # prior probability p(s,a)
+
+        # Caching for vectorization
+        self.child_priors = None
+        self.child_moves = None
 
     def backpropagate(self, value: float):
         self.total_value += value
         self.num_rollouts += 1
         if self.parent:
-            # Negative, since parent is the other player
             self.parent.backpropagate(-value)
 
     def average_value(self):
@@ -42,41 +43,49 @@ class MCTSNode(object):
     def is_terminal(self):
         return self.game_state.is_over()
 
-    def expand_children(self, move_probs_dict: dict):
-        for move, prob in move_probs_dict.items():
+    def expand_children(self, moves: List[Move], probs: np.ndarray):
+        """
+        Optimized expansion: receives a numpy array of probs directly.
+        """
+        self.children = []
+        # Pre-allocate lists for vectorized selection later
+        self.child_priors = np.zeros(len(moves), dtype=np.float32)
+        self.child_moves = []
+
+        for i, move in enumerate(moves):
             new_game_state = self.game_state.apply_move(move)
-            self.children.append(MCTSNode(new_game_state, prob, self, move))
+            prob = probs[i]
+            child = MCTSNode(new_game_state, prob, self, move)
+            self.children.append(child)
 
-    # Select the child with the highest PUCT (Polynomial Upper Confidence for Trees) score.
-    def select_child(self, c_puct: float):
+            # Cache for vectorized selection
+            self.child_priors[i] = prob
+            self.child_moves.append(move)
+
+    def select_child_vectorized(self, c_puct: float):
         """
-        Q(s,a) = child.average_value() (from the perspective of the current player 's')
-        U(s,a) = c_puct * P(s,a) * (sqrt(N(s)) / (1 + N(s,a)))
-
-        Our Q(s,a) is stored as child.average_value() and is from the perspective of the
-        *parent* node. The current player wants to maximize Q(s,a) for the *next* state,
-        which is equivalent to *minimizing* the Q value of the child node (which is from
-        the opponent's perspective).
-
-        Therefore, we use Q = -child.average_value()
+        Vectorized UCT calculation using NumPy.
+        Huge speedup over iterating python objects.
         """
-        total_parent_rollouts = self.num_rollouts
+        # 1. Extract stats from children
+        # Ideally, we would update these arrays incrementally, but rebuilding
+        # valid arrays for this list size is still faster than a Python for-loop.
+        counts = np.array([c.num_rollouts for c in self.children], dtype=np.float32)
+        # Note: We want -avg_value because we want to minimize opponent's Q
+        avg_values = np.array([-c.average_value() for c in self.children], dtype=np.float32)
 
-        best_score = -float('inf')
-        best_child = None
-        for child in self.children:
-            # Q(s,a) = -child.average_value()
-            exploitation_score = -child.average_value()
-            # U(s,a)
-            exploration_score = c_puct * child.prob * (math.sqrt(total_parent_rollouts) / (1 + child.num_rollouts))
+        # 2. Calculate UCT
+        sqrt_parent = math.sqrt(self.num_rollouts)
 
-            uct_score = exploitation_score + exploration_score
+        # U = c_puct * P * (sqrt(N_parent) / (1 + N_child))
+        u_scores = c_puct * self.child_priors * (sqrt_parent / (1 + counts))
 
-            if uct_score > best_score:
-                best_score = uct_score
-                best_child = child
+        # Q + U
+        uct_scores = avg_values + u_scores
 
-        return best_child
+        # 3. Argmax
+        best_idx = np.argmax(uct_scores)
+        return self.children[best_idx]
 
 
 class MCTSAgent(agent.Agent):
@@ -93,222 +102,159 @@ class MCTSAgent(agent.Agent):
     ):
         agent.Agent.__init__(self)
         self.ac_agent = ac_agent
-
         self.num_rounds = num_rounds
         self.c_puct = c_puct
         self.temperature = temperature
         self.lambda_mix = lambda_mix
         self.dirichlet_alpha = dirichlet_alpha
         self.dirichlet_epsilon = dirichlet_epsilon
+
         if eval_mode:
             self.ac_agent._model.eval()
 
     def select_moves(self, game_states: List[GameStateTemplate]) -> List[Move]:
-        bs = len(game_states)
+        batch_size = len(game_states)
+        roots = [MCTSNode(gs, prob=1.0) for gs in game_states]
 
-        moves = []
-        for game_state in game_states:
-            (
-                Xs,
-                action_tensors,
-                _,
-                _,
-                _,
-                valid_move_mask,
-                mcts_policy_target,
-                mcts_value_target,
-                selected_move
-            ) = self._run_search(game_state)
+        root_datasets = [{} for _ in range(batch_size)]
 
-            if self.ac_agent._collectors is not None and Xs is not None:
-                action_indices = action_tensors.tolist()
-                mcts_policy_target_list = mcts_policy_target.tolist()
-                # mcts_value_target_list = mcts_value_target.tolist()
-                for i in range(bs):
-                    self.ac_agent._collectors[i].record_decision(
-                        state=Xs[i],
-                        action=action_indices[i],
-                        log_prob=mcts_policy_target_list[i],
-                        estimated_value=mcts_value_target,  # TODO: change this if I want batching
-                        mask=valid_move_mask[i]
-                    )
-
-            # Should never happen
-            if selected_move is None:
-                legal_moves = game_state.legal_moves()
-                selected_move = random.choice(legal_moves) if legal_moves else None
-
-            moves.append(selected_move)
-        return moves
-
-    def _run_search(self, game_state: GameStateTemplate):
-        root = MCTSNode(game_state, prob=1.0)
-
-        root_data = {
-            "Xs": None,
-            "action_tensors": None,
-            "estimated_values": None,
-            "log_probs": None,
-            "move_probs": None,
-            "valid_move_mask": None
-        }
-        # Tree search
         for i in range(self.num_rounds):
-            node = root
-            path = [root]
+            leaf_nodes = []
+            terminals = []
 
-            # Get leaf node
-            while node.children:
-                assert node is not None, "'node' variable should not be be None"  # Can't happen, but to hide mypy warning
-                node = node.select_child(self.c_puct)
-            assert node is not None, "'node' variable should not be be None"  # Can't happen, but to hide mypy warning
+            for root in roots:
+                node = root
+                while node.children:
+                    node = node.select_child_vectorized(self.c_puct)
+                leaf_nodes.append(node)
 
-            value = 0.0
-            if node.is_terminal():
-                winner = node.game_state.winner()
-                if winner is None:
-                    value = 0.0
-                elif winner == node.game_state.next_player:
-                    value = 1.0
+            # Separate Terminal vs Non-Terminal
+            expandable_pairs = [] # (index_in_batch, node)
+            for idx, node in enumerate(leaf_nodes):
+                if node.is_terminal():
+                    # Handle terminal value immediately
+                    winner = node.game_state.winner()
+                    if winner is None: val = 0.0
+                    elif winner == node.game_state.next_player: val = 1.0
+                    else: val = -1.0
+                    node.backpropagate(val)
                 else:
-                    value = -1.0
-            else:
-                with torch.no_grad():
-                    Xs, action_tensors, estimated_values, log_probs, move_probs, valid_move_mask = self.ac_agent.sample_moves([node.game_state])
+                    expandable_pairs.append((idx, node))
+
+            if not expandable_pairs:
+                continue
+
+            states_to_eval = [p[1].game_state for p in expandable_pairs]
+
+            with torch.no_grad():
+                Xs, _, estimated_values, _, move_probs, valid_move_mask = self.ac_agent.sample_moves(states_to_eval)
+            move_probs_cpu = move_probs.cpu().numpy()
+
+            for batch_idx, (original_idx, node) in enumerate(expandable_pairs):
                 if i == 0:
-                    root_data["Xs"] = Xs
-                    root_data["action_tensors"] = action_tensors
-                    root_data["estimated_values"] = estimated_values
-                    root_data["log_probs"] = log_probs
-                    root_data["move_probs"] = move_probs
-                    root_data["valid_move_mask"] = valid_move_mask
+                    root_datasets[original_idx] = {
+                        "Xs": Xs[batch_idx],
+                        "valid_move_mask": valid_move_mask[batch_idx],
+                        "estimated_value": estimated_values[batch_idx]
+                    }
 
-                predicted_value = estimated_values[0].item()
+                value = estimated_values[batch_idx].item()
+                legal_moves = node.game_state.legal_moves()
+                move_indices = [self.ac_agent._encoder.encode_point(m.point) for m in legal_moves]
+                node_probs = move_probs_cpu[batch_idx, move_indices]
 
-                # Convert policy network's probs to dict used in node.expand_children()
-                flattened_probs = move_probs[0]
-                move_probs_dict = {}
+                prob_sum = np.sum(node_probs)
+                if prob_sum > 0:
+                    node_probs /= prob_sum
 
-                legal_moves_list = node.game_state.legal_moves()
-                for move in legal_moves_list:
-                    move_idx = self.ac_agent._encoder.encode_point(move.point)
-                    prob = flattened_probs[move_idx].item()
-                    move_probs_dict[move] = prob
-                # Dirichlet noise
-                if node is root and self.dirichlet_epsilon > 0:
-                    num_legal_moves = len(legal_moves_list)
-                    if num_legal_moves > 0:
-                        alphas = torch.full((num_legal_moves,), self.dirichlet_alpha)
-                        dir_dist = torch.distributions.dirichlet.Dirichlet(alphas)
-                        noise = dir_dist.sample()
+                # Dirichlet Noise (only at root)
+                if node.parent is None and self.dirichlet_epsilon > 0 and len(legal_moves) > 0:
+                    noise = np.random.dirichlet([self.dirichlet_alpha] * len(legal_moves))
+                    node_probs = (1 - self.dirichlet_epsilon) * node_probs + self.dirichlet_epsilon * noise
 
-                        # Mix noise into probs
-                        for i, move in enumerate(legal_moves_list):
-                            original_prob = move_probs_dict[move]
-                            noise_prob = noise[i].item()
-                            move_probs_dict[move] = (1 - self.dirichlet_epsilon) * original_prob + self.dirichlet_epsilon * noise_prob
-
-                node.expand_children(move_probs_dict)
+                node.expand_children(legal_moves, node_probs)
 
                 if self.lambda_mix > 0:
                     rollout_reward = self.simulate_random_game(node.game_state)
-                    value = (1-self.lambda_mix) * predicted_value + self.lambda_mix * rollout_reward
+                    value = (1 - self.lambda_mix) * value + self.lambda_mix * rollout_reward
+
+                node.backpropagate(value)
+
+        # Selection
+        selected_moves = []
+        for i, root in enumerate(roots):
+            if not root.children:
+                selected_moves.append(None)
+                continue
+
+            total_visits = root.num_rollouts - 1
+            num_encoder_moves = self.ac_agent._encoder.num_points()
+
+            child_moves = root.children # Access the objects
+
+            policy_target_list = [0.0] * num_encoder_moves
+
+            child_visits = []
+            valid_children = []
+
+            for child in child_moves:
+                if child.num_rollouts > 0:
+                    visits = child.num_rollouts
+                    idx = self.ac_agent._encoder.encode_point(child.move.point)
+                    if total_visits > 0:
+                        policy_target_list[idx] = visits / total_visits
+                    child_visits.append(visits)
+                    valid_children.append(child)
+
+            # Select Move
+            if not valid_children:
+                selected_move = random.choice(root.game_state.legal_moves())
+            elif self.temperature == 0:
+                max_visit = -1
+                best_c = None
+                for c in valid_children:
+                    if c.num_rollouts > max_visit:
+                        max_visit = c.num_rollouts
+                        best_c = c
+                selected_move = best_c.move
+            else:
+                visits_arr = np.array(child_visits, dtype=np.float64)
+                visits_temp = visits_arr ** (1.0 / self.temperature)
+                sum_v = np.sum(visits_temp)
+                if sum_v > 0:
+                    probs = visits_temp / sum_v
+                    chosen_child = np.random.choice(valid_children, p=probs)
+                    selected_move = chosen_child.move
                 else:
-                    value = predicted_value  # Like in AlphaZero
+                    selected_move = valid_children[0].move
 
-            node.backpropagate(value)
-
-        # Search is now completed
-        num_moves: int = self.ac_agent._encoder.num_points()
-        policy_target = torch.zeros(num_moves, dtype=torch.float32) # This is the MCTS policy target
-        move_to_child = {child.move: child for child in root.children}
-
-        total_visits = root.num_rollouts - 1
-        if total_visits <= 0:
-            legal_moves: List[Move] = root.game_state.legal_moves()
-            if not legal_moves:
-                raise Exception("No legal moves. This should never happen I think!")
-                print("No legal moves!") # TODO: Should never happen I think?
-                selected_move = None
-                mcts_value = 0.0 # No rollouts, value is 0
-                return (
-                    root_data["Xs"], root_data["action_tensors"], root_data["estimated_values"],
-                    root_data["log_probs"], root_data["move_probs"], root_data["valid_move_mask"],
-                    policy_target, mcts_value, selected_move
+            if self.ac_agent._collectors is not None and "Xs" in root_datasets[i]:
+                rd = root_datasets[i]
+                action_idx = self.ac_agent._encoder.encode_point(selected_move.point)
+                move_prob = policy_target_list[action_idx]
+                log_prob_scalar = torch.log(torch.tensor(move_prob + 1e-10)).item()
+                self.ac_agent._collectors[i].record_decision(
+                    state=rd["Xs"],
+                    action=action_idx,
+                    log_prob=log_prob_scalar,
+                    policy_target=torch.tensor(policy_target_list),
+                    estimated_value=rd["estimated_value"],
+                    mask=rd["valid_move_mask"],
                 )
 
-            prob = 1.0 / len(legal_moves)
-            for move in legal_moves:
-                move_idx = self.ac_agent._encoder.encode_point(move.point)
-                policy_target[move_idx] = prob
+            selected_moves.append(selected_move)
 
-            selected_move = random.choice(legal_moves)
-            mcts_value = root.average_value()
-            return (
-                root_data["Xs"], root_data["action_tensors"], root_data["estimated_values"],
-                root_data["log_probs"], root_data["move_probs"], root_data["valid_move_mask"],
-                policy_target, mcts_value, selected_move
-            )
-
-        child_visits = []
-        child_moves = []
-        for child in root.children:
-            if child.num_rollouts > 0:
-                move_idx = self.ac_agent._encoder.encode_point(child.move.point)
-                visits = child.num_rollouts
-
-                policy_target[move_idx] = visits / total_visits
-
-                child_visits.append(visits)
-                child_moves.append(child.move)
-
-        # Select the move to play
-        if self.temperature == 0:
-            best_move_idx = torch.argmax(policy_target).item()
-            selected_move = Move(point=self.ac_agent._encoder.decode_point_index(best_move_idx))
-        else:
-            visits_with_temp = torch.tensor([v**(1.0 / self.temperature) for v in child_visits])
-            draw_probs = visits_with_temp / torch.sum(visits_with_temp)
-            move_idx = random.choices(range(len(child_moves)), weights=draw_probs, k=1)[0]
-            selected_move = child_moves[move_idx]
-
-        mcts_value = root.average_value()
-
-        return (
-            root_data["Xs"],
-            root_data["action_tensors"],
-            root_data["estimated_values"],
-            root_data["log_probs"],
-            root_data["move_probs"],
-            root_data["valid_move_mask"],
-            policy_target,
-            mcts_value,
-            selected_move
-        )
+        return selected_moves
 
     @staticmethod
     def simulate_random_game(game_state: GameStateTemplate):
         current_game = game_state.copy()
+        while not current_game.is_over():
+            legal_moves = current_game.legal_moves()
+            if not legal_moves: break
+            move = random.choice(legal_moves)
+            current_game = current_game.apply_move(move)
 
-        if current_game.is_over():
-            winner = current_game.winner()
-        else:
-            while True:
-                legal_moves = current_game.legal_moves()
-                if not legal_moves:
-                    winner = None
-                    break
-
-                move = random.choice(legal_moves)
-                current_game = current_game.apply_move(move)
-
-                if current_game.is_over():
-                    winner = current_game.winner()
-                    break
-
-        if winner is None:
-            return 0.0
-        elif winner == game_state.next_player:
-            return 1.0
-        else:
-            return -1.0
+        winner = current_game.winner()
+        if winner is None: return 0.0
+        return 1.0 if winner == game_state.next_player else -1.0

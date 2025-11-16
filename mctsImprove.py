@@ -76,7 +76,7 @@ def MCTSimprove(
             game_name=game_name,
             agent1_path=new_agent_path,
             agent2_path=old_agent_path,
-            num_games=num_games_per_iteration,
+            num_games=512,  # tmp
             board_size=board_size,
             batch_size=play_batch_size,
             num_rounds=mcts_num_rounds,
@@ -114,8 +114,8 @@ def MCTSimprove(
                 if gen_num % 10 != 0 and os.path.exists(oldest):
                     os.remove(oldest)
 
-            for exp_file in os.listdir(experience_base_path):
-                os.remove(os.path.join(experience_base_path, exp_file))
+            # for exp_file in os.listdir(experience_base_path):
+            #     os.remove(os.path.join(experience_base_path, exp_file))
 
             print(f"\nNew agent was better after {gen_iteration} iterations. Going to generation {current_generation} now.")
             gen_iteration = 0
