@@ -1,6 +1,9 @@
 /.vscode
 agents/
 newAgents/
+logs/
 __pycache__
 .DS_Store
 wandb
+*.json
+*.sh
