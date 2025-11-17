@@ -112,10 +112,18 @@ class MCTSAgent(agent.Agent):
         if eval_mode:
             self.ac_agent._model.eval()
 
-    def select_moves(self, game_states: List[GameStateTemplate]) -> List[Move]:
+    def run_mcts(self, game_states: List[GameStateTemplate]) -> Tuple[List[torch.Tensor], List[float], List[MCTSNode], List[Dict]]:
+        """
+        Runs MCTS simulations and returns the resulting policy and value.
+
+        Returns:
+            - List[torch.Tensor]: Policy targets for each root state.
+            - List[float]: Estimated values for each root state.
+            - List[MCTSNode]: The root nodes.
+            - List[Dict]: The root datasets for collectors.
+        """
         batch_size = len(game_states)
         roots = [MCTSNode(gs, prob=1.0) for gs in game_states]
-
         root_datasets = [{} for _ in range(batch_size)]
 
         for i in range(self.num_rounds):
@@ -180,22 +188,23 @@ class MCTSAgent(agent.Agent):
 
                 node.backpropagate(value)
 
-        # Selection
-        selected_moves = []
-        for i, root in enumerate(roots):
+        # --- End of Simulation Loop ---
+
+        # Calculate final policies and values
+        all_policy_targets = []
+        all_root_values = []
+        num_encoder_moves = self.ac_agent._encoder.num_points()
+
+        for root in roots:
+            all_root_values.append(root.average_value())
+
             if not root.children:
-                selected_moves.append(None)
+                all_policy_targets.append(torch.zeros(num_encoder_moves, dtype=torch.float32))
                 continue
 
             total_visits = root.num_rollouts - 1
-            num_encoder_moves = self.ac_agent._encoder.num_points()
-
-            child_moves = root.children # Access the objects
-
             policy_target_list = [0.0] * num_encoder_moves
-
-            child_visits = []
-            valid_children = []
+            child_moves = root.children
 
             for child in child_moves:
                 if child.num_rollouts > 0:
@@ -203,7 +212,31 @@ class MCTSAgent(agent.Agent):
                     idx = self.ac_agent._encoder.encode_point(child.move.point)
                     if total_visits > 0:
                         policy_target_list[idx] = visits / total_visits
-                    child_visits.append(visits)
+
+            all_policy_targets.append(torch.tensor(policy_target_list, dtype=torch.float32))
+
+        return all_policy_targets, all_root_values, roots, root_datasets
+
+
+    def select_moves(self, game_states: List[GameStateTemplate]) -> List[Move]:
+        # Run the MCTS simulation to get policies, values, and roots
+        all_policy_targets, _, roots, root_datasets = self.run_mcts(game_states)
+
+        selected_moves = []
+        for i, root in enumerate(roots):
+            if not root.children:
+                selected_moves.append(None)
+                continue
+
+            policy_target_tensor = all_policy_targets[i] # This is a tensor
+            child_moves = root.children # Access the objects
+
+            # Gather visit counts for move selection
+            child_visits = []
+            valid_children = []
+            for child in child_moves:
+                if child.num_rollouts > 0:
+                    child_visits.append(child.num_rollouts)
                     valid_children.append(child)
 
             # Select Move
@@ -231,13 +264,13 @@ class MCTSAgent(agent.Agent):
             if self.ac_agent._collectors is not None and "Xs" in root_datasets[i]:
                 rd = root_datasets[i]
                 action_idx = self.ac_agent._encoder.encode_point(selected_move.point)
-                move_prob = policy_target_list[action_idx]
+                move_prob = policy_target_tensor[action_idx].item()
                 log_prob_scalar = torch.log(torch.tensor(move_prob + 1e-10)).item()
                 self.ac_agent._collectors[i].record_decision(
                     state=rd["Xs"],
                     action=action_idx,
                     log_prob=log_prob_scalar,
-                    policy_target=torch.tensor(policy_target_list),
+                    policy_target=policy_target_tensor, # Pass the full policy tensor
                     estimated_value=rd["estimated_value"],
                     mask=rd["valid_move_mask"],
                 )
