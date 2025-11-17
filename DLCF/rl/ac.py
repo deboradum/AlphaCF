@@ -143,11 +143,12 @@ class ACAgent(Agent):
 
         dataset = TensorDataset(
             experience.states,
-            experience.actions,
-            experience.advantages,
+            # experience.actions,
+            # experience.advantages,
             experience.rewards,
-            experience.old_log_probs,
+            # experience.old_log_probs,
             experience.masks,
+            experience.policy_targets
         )
         data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
@@ -161,45 +162,28 @@ class ACAgent(Agent):
         num_batches = 0
 
         for _ in tqdm(range(ppo_epochs), desc="Training agent"):
-            for states_batch, actions_batch, advantages_batch, value_target_batch, old_log_probs_batch, masks_batch in data_loader:
+            for states_batch, value_target_batch, masks_batch, policy_targets_batch in data_loader:
                 states_batch = states_batch.to(self.device)
-                actions_batch = actions_batch.to(self.device)
-                advantages_batch = advantages_batch.to(self.device)
                 value_target_batch = value_target_batch.to(self.device).view(-1, 1)
-                old_log_probs_batch = old_log_probs_batch.to(self.device)
                 masks_batch = masks_batch.to(self.device)
-
-                # Normalize advantages for better
-                std = advantages_batch.std()
-                if std > 1e-8:
-                    advantages_batch = (advantages_batch - advantages_batch.mean()) / std
-                else:
-                    advantages_batch = advantages_batch - advantages_batch.mean()
+                policy_targets_batch = policy_targets_batch.to(self.device)
 
                 self.optimizer.zero_grad()
 
                 policy_logits, value_pred = self._model(states_batch)
 
-                # Mask illegal moves
+                value_loss = value_loss_fn(value_pred, value_target_batch)
+
                 is_game_over = ~masks_batch.any(dim=1)
                 if is_game_over.any():
                     masks_batch[is_game_over, 0] = True
                 masked_logits = policy_logits.clone()
                 masked_logits[~masks_batch] = float('-inf')
 
+                log_probs_from_logits = nn.functional.log_softmax(masked_logits, dim=-1)
+                policy_loss = -(policy_targets_batch * log_probs_from_logits).sum(dim=-1).mean()
+
                 dist = torch.distributions.Categorical(logits=masked_logits)
-
-                new_log_probs = dist.log_prob(actions_batch)
-
-                ratio = torch.exp(new_log_probs - old_log_probs_batch)
-
-                surr1 = ratio * advantages_batch
-                surr2 = torch.clamp(ratio, 1.0 - clip_epsilon, 1.0 + clip_epsilon) * advantages_batch
-
-                policy_loss = -torch.min(surr1, surr2).mean()
-
-                value_loss = value_loss_fn(value_pred, value_target_batch)
-
                 entropy_loss = -entropy_coef * dist.entropy().mean()
 
                 total_loss = policy_loss + 0.5 * value_loss + entropy_loss
