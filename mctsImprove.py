@@ -114,8 +114,8 @@ def MCTSimprove(
                 if gen_num % 10 != 0 and os.path.exists(oldest):
                     os.remove(oldest)
 
-            for exp_file in os.listdir(experience_base_path):
-                os.remove(os.path.join(experience_base_path, exp_file))
+            # for exp_file in os.listdir(experience_base_path):
+                # os.remove(os.path.join(experience_base_path, exp_file))
 
             print(f"\nNew agent was better after {gen_iteration} iterations. Going to generation {current_generation} now.")
             gen_iteration = 0
@@ -127,8 +127,8 @@ def MCTSimprove(
 
         # If agent is not better after 3 iterations, model is either locally optimal or too heavily overfitted
         if gen_iteration > 4:
-            for exp_file in os.listdir(experience_base_path):
-                os.remove(os.path.join(experience_base_path, exp_file))
+            # for exp_file in os.listdir(experience_base_path):
+            #     os.remove(os.path.join(experience_base_path, exp_file))
             break
 
 
@@ -152,7 +152,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--mcts-rounds', type=int, default=200, help="Number of MCTS simulations per move.")
     parser.add_argument('--mcts-c-puct', type=float, default=1.0, help="MCTS exploration constant.")
-    parser.add_argument('--mcts-temp', type=float, default=1.0, help="MCTS temperature for move selection.")
+    parser.add_argument('--mcts-temp', type=float, default=0.0, help="MCTS temperature for move selection.")
     args = parser.parse_args()
 
     game_name = args.game
