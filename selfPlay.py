@@ -87,7 +87,7 @@ def selfPlay(game_name: str, agent_filename: str, experience_filename: str, num_
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="connectFour")  # The game name, which should also be the encoder name of that game.
+    parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="ConnectFour")  # The game name, which should also be the encoder name of that game.
     parser.add_argument('--batch-size', '-b', type=int, default=512)
     parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
     parser.add_argument('--learning-agent', type=str, required=True)

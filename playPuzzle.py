@@ -126,7 +126,7 @@ def print_debug_data(game_state: GameState, unique_moves: List, sol_move_num: in
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="connectFour")  # The game name, which should also be the encoder name of that game.
+    parser.add_argument('--game', type=str, choices=["ConnectFour", "Gomoku"], default="ConnectFour")  # The game name, which should also be the encoder name of that game.
     parser.add_argument('--agent', type=str, required=True)
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
     parser.add_argument('--mcts', action="store_true")
@@ -198,9 +198,22 @@ if __name__ == "__main__":
                 move_probs, estimated_values = agent.predict_policy_and_value(game_states=game_states_to_predict)
                 # We only need move probs for the current (first) game state
                 current_state_probs = move_probs[0]
+
+                hypothetical_values_by_col = [0.0] * puzzle.board.num_cols
+                for col_idx, batch_idx in col_to_batch_index.items():
+                    hypothetical_values_by_col[col_idx] = estimated_values[batch_idx].item()
             # MCTS agent
             else:
-                _, _, _, _, _, _, current_state_probs, current_state_val, _ = agent._run_search(game_state)
+                policy_targets, root_values, roots, _ = agent.run_mcts([game_state])
+                current_state_probs = policy_targets[0]
+                current_root_node = roots[0]
+
+                hypothetical_values_by_col = [0.0] * puzzle.board.num_cols
+                if current_root_node.children:
+                    for child in current_root_node.children:
+                        col_idx = child.move.point.col - 1 # 0-indexed
+                        move_q_value = -child.average_value()
+                        hypothetical_values_by_col[col_idx] = move_q_value
 
             probs_2d = current_state_probs.reshape(
                 puzzle.board.num_rows,
@@ -223,11 +236,7 @@ if __name__ == "__main__":
             if verbose:
                 solution_prob_strings = [f"{correct_move_prob_per_move:+.3f}" if col in correct_cols else f"{0:+.3f}"for col in range(1, 8)]
                 max_prob_strings = [f"{prob:+.3f}" for prob in max_col_probs]
-                hypothetical_values_by_col = [0.0] * puzzle.board.num_cols
-                # for col_idx, batch_idx in col_to_batch_index.items():
-                #     hypothetical_values_by_col[col_idx] = estimated_values[batch_idx].item()
-                # value_strings = [f"{v:+.3f}" for v in hypothetical_values_by_col]
-                value_strings = [f"{0:+.3f}"]*7
+                value_strings = [f"{v:+.3f}" for v in hypothetical_values_by_col]
 
                 print_debug_data(game_state, unique_moves, sol_move_num, solution_prob_strings, max_prob_strings, value_strings)
 
