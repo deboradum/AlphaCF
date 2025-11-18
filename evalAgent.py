@@ -39,7 +39,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', '-b', type=int, default=512)
     parser.add_argument('--agent1', required=True)
     parser.add_argument('--agent2', required=True)
-    parser.add_argument('--num-games', '-n', type=int, default=10)
+    parser.add_argument('--num-games', '-n', type=int, default=1024)
     parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7], help="The board size as (heigth, width) (default., 6 7)")
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu', help='The device to run on (cpu, cuda, or mps)')
     parser.add_argument('--verbose', action="store_true")

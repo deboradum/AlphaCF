@@ -1,13 +1,11 @@
+import math
 import torch
 import argparse
-import math
 from DLCF import rl
 from tqdm import tqdm
 from Model import Model
 from typing import Tuple, List
 from DLCF.DLCFtypes import Player
-from collections import namedtuple
-# Ensure DLCF.mcts.mcts contains the NEW optimized MCTSAgent class I provided
 from DLCF.mcts.mcts import MCTSAgent
 from DLCF.getGameState import getGameState
 from constants import WIN_REWARD, LOSS_REWARD
@@ -69,7 +67,6 @@ def simulate_batch(
                         black_collectors[original_idx].complete_episode(reward=0)
                         white_collectors[original_idx].complete_episode(reward=0)
                 else:
-                    # Game continues
                     next_active_indices.append(original_idx)
 
             active_indices = next_active_indices
@@ -98,7 +95,7 @@ def mctsSelfPlay(
 
     num_batches = math.ceil(num_games / batch_size)
 
-    for _ in tqdm(range(num_batches), desc="Generating experience (batches)"):
+    for _ in tqdm(range(num_batches), desc="Generating experience"):
         for c in collectors_black: c.begin_episode()
         for c in collectors_white: c.begin_episode()
 
@@ -124,13 +121,12 @@ if __name__ == '__main__':
     parser.add_argument('--experience-out', type=str, required=True, help="Path to save the experience buffer.")
     parser.add_argument('--num-games', '-n', type=int, default=100)
     parser.add_argument('--batch-size', '-b', type=int, default=10, help="Number of games to simulate in parallel.")
-    parser.add_argument('--buffer-size', type=int, default=20000, help="Total size of the experience replay buffer.")
     parser.add_argument('--board-size', type=int, nargs=2, default=[6, 7])
     parser.add_argument('--device', type=str, choices=['cpu', 'cuda', 'mps'], default='cpu')
 
     parser.add_argument('--num-rounds', type=int, default=100, help="Number of MCTS simulations per move.")
     parser.add_argument('--c-puct', type=float, default=1.0, help="Exploration constant.")
-    parser.add_argument('--temperature', type=float, default=1.0, help="Controls move selection stochasticity.")
+    parser.add_argument('--temperature', type=float, default=0.0, help="Controls move selection stochasticity.")
 
     args = parser.parse_args()
 
