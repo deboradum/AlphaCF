@@ -28,7 +28,7 @@ def MCTSimprove(
     device: str,
     verbose: bool = False,
 ):
-    if not  os.path.isfile(base_agent_path):
+    if not os.path.isfile(base_agent_path):
         initAgent(board_size=board_size, encoder_name=encoder_name, output_file=base_agent_path)
 
     old_agent_path = base_agent_path
@@ -181,8 +181,6 @@ if __name__ == "__main__":
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
-
-    assert os.path.isfile(base_agent_path), f"Base agent not found at {base_agent_path}"
 
     if device == 'cuda' and not torch.cuda.is_available():
         print("CUDA not available, falling back to CPU.")
