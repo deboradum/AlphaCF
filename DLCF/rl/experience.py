@@ -128,7 +128,7 @@ class ExperienceBuffer:
 
     @classmethod
     def load(cls, path: str):
-        data = torch.load(path, weights_only=True)
+        data = torch.load(path, map_location='cpu', weights_only=True)
         return cls(
             states=data['states'],
             actions=data['actions'],
