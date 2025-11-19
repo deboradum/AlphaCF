@@ -5,7 +5,7 @@ import random
 import argparse
 import shutil
 from typing import Tuple
-
+from initAgent import initAgent
 from mctsEvalAgent import mctsEvalAgent
 from mctsSelfPlay import mctsSelfPlay
 from mctsTrainAgent import mctsTrainAgent
@@ -14,6 +14,7 @@ from mctsTrainAgent import mctsTrainAgent
 def MCTSimprove(
     game_name: str,
     board_size: Tuple[int, int],
+    encoder_name: str,
     base_agent_path: str,
     num_generations: int,
     num_games_per_iteration: int,
@@ -27,7 +28,9 @@ def MCTSimprove(
     device: str,
     verbose: bool = False,
 ):
-    assert os.path.isfile(base_agent_path)
+    if not  os.path.isfile(base_agent_path):
+        initAgent(board_size=board_size, encoder_name=encoder_name, output_file=base_agent_path)
+
     old_agent_path = base_agent_path
 
     base_agent_path_dir = os.path.dirname(base_agent_path)
@@ -217,6 +220,7 @@ if __name__ == "__main__":
     MCTSimprove(
         game_name=args.game,
         board_size=tuple(args.board_size),
+        encoder_name=args.game,
         base_agent_path=args.base_agent,
         num_generations=args.num_generations,
         num_games_per_iteration=args.num_games_per_iteration,
